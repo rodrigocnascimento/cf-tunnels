@@ -21,6 +21,18 @@ set -euo pipefail
 #   No servidor: cftunnel add --hostname redis.meudominio.com --type tcp --service tcp://localhost:6379
 #   No cliente:  cloudflared access tcp --hostname redis.meudominio.com --url localhost:6379
 #   Depois:    redis-cli -h localhost -p 6379
+#
+# IMPORTANTE: Para túneis TCP/UDP (como Redis, bancos de dados, etc.):
+#   1. O túnel é criado no servidor com este script
+#   2. Na máquina cliente QUE VAI ACESSAR o serviço, execute:
+#      cloudflared access tcp --hostname <SEU-HOSTNAME> --url localhost:<PORTA>
+#   3. Então conecte seu aplicativo em localhost:<PORTA> (não no hostname público)
+#   4. O tráfego fluirá criptografadamente através do túnel Cloudflare
+#
+# Exemplo para acesso ao Redis a partir de outra máquina:
+#   No servidor: cftunnel add --hostname redis.meudominio.com --type tcp --service tcp://localhost:6379
+#   No cliente:  cloudflared access tcp --hostname redis.meudominio.com --url localhost:6379
+#   Depois:    redis-cli -h localhost -p 6379
 
 # ===== Config padrão =======================================================
 RUN_USER="${RUN_USER:-$USER}"
@@ -160,7 +172,7 @@ YAML
 	# 4.1) Verificar DNS existente antes de criar rota
 	echo "[+] verificando DNS existente para ${HOSTNAME}..."
 	local EXISTING_DNS
-	EXISTING_DNS="$(dig +short "$HOSTNAME" 2>/dev/null || echo "")"
+	EXISTING_DNS="$(dig @1.1.1.1 +short "$HOSTNAME" 2>/dev/null || echo "")"
 	if [[ -n "$EXISTING_DNS" ]]; then
 		if [[ "$EXISTING_DNS" == *".cfargotunnel.com"* ]]; then
 			echo "[=] DNS já aponta para cfargotunnel (ok)"

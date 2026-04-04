@@ -99,6 +99,19 @@ chmod +x run.sh
 
 # Create alias (optional)
 alias cftunnel="$PWD/run.sh"
+
+## ⚠️ IMPORTANTE: Túneis TCP/UDP
+Para túneis TCP/UDP (como Redis, bancos de dados, etc.):
+1. O túnel é criado no servidor com este script
+2. Na máquina cliente QUE VAI ACESSAR o serviço, execute:
+   cloudflared access tcp --hostname <SEU-HOSTNAME> --url localhost:<PORTA>
+3. Então conecte seu aplicativo em localhost:<PORTA> (não no hostname público)
+4. O tráfego fluirá criptografadamente através do túnel Cloudflare
+
+Exemplo para acesso ao Redis a partir de outra máquina:
+- No servidor: cftunnel add --hostname redis.meudominio.com --type tcp --service tcp://localhost:6379
+- No cliente:  cloudflared access tcp --hostname redis.meudominio.com --url localhost:6379
+- Depois:    redis-cli -h localhost -p 6379
 ```
 
 ## Usage
