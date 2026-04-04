@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # cftunnel — gerenciador de túneis por subdomínio (modo "um YAML por túnel")
-# Uso básico:
-#   cftunnel add --hostname ssh.testes.lat --type ssh --service ssh://localhost:22 --name ssh-config
-#   cftunnel add --hostname api.testes.lat --type http --service http://localhost:4000
-#   cftunnel add --hostname redis.testes.lat --type tcp --service tcp://localhost:6379
+# uso básico:
+#   cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22 --name ssh-config
+#   cftunnel add --hostname api.example.com --type http --service http://localhost:4000
+#   cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
 #   cftunnel remove --name ssh-config
 #   cftunnel start|stop|status|logs --name ssh-config
 #   cftunnel list
@@ -13,13 +13,13 @@ set -euo pipefail
 # IMPORTANTE: Para túneis TCP/UDP (como Redis, bancos de dados, etc.):
 #   1. O túnel é criado no servidor com este script
 #   2. Na máquina cliente QUE VAI ACESSAR o serviço, execute:
-#      cloudflared access tcp --hostname <SEU-HOSTNAME> --url localhost:<PORTA>
-#   3. Então conecte seu aplicativo em localhost:<PORTA> (não no hostname público)
+#      cloudflared access tcp --hostname <HOSTNAME> --url localhost:<PORT>
+#   3. Então conecte seu aplicativo em localhost:<PORT> (não no hostname público)
 #   4. O tráfego fluirá criptografadamente através do túnel Cloudflare
 #
 # Exemplo para acesso ao Redis a partir de outra máquina:
-#   No servidor: cftunnel add --hostname redis.meudominio.com --type tcp --service tcp://localhost:6379
-#   No cliente:  cloudflared access tcp --hostname redis.meudominio.com --url localhost:6379
+#   No servidor: cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
+#   No cliente:  cloudflared access tcp --hostname redis.example.com --url localhost:6379
 #   Depois:    redis-cli -h localhost -p 6379
 #
 # IMPORTANTE: Para túneis TCP/UDP (como Redis, bancos de dados, etc.):
@@ -74,8 +74,8 @@ Uso:
   $0 list
 
 Exemplos:
-  $0 add --hostname ssh.testes.lat  --type ssh  --service ssh://localhost:22  --name ssh-config
-  $0 add --hostname api.testes.lat  --type http --service http://localhost:4000
+  $0 add --hostname ssh.example.com  --type ssh  --service ssh://localhost:22  --name ssh-config
+  $0 add --hostname api.example.com  --type http --service http://localhost:4000
   $0 logs --name ssh-config
 USAGE
 }
@@ -116,12 +116,12 @@ op_add() {
 
 	validate_flags_add
 
-	# Deriva NAME se não informado: usa domínio-base + tipo (ex.: raincity.digital + http → raincity-digital-http)
+	# Deriva NAME se não informado: usa domínio-base + tipo (ex.: example.com + http → example-com-http)
 	local BASE_DOMAIN
-	BASE_DOMAIN="$(echo "$HOSTNAME" | rev | cut -d. -f1-2 | rev)" # raincity.digital
+	BASE_DOMAIN="$(echo "$HOSTNAME" | rev | cut -d. -f1-2 | rev)" # example.com
 	local DEFAULT_NAME
-	DEFAULT_NAME="${BASE_DOMAIN}-${TYPE}"                                                   # raincity.digital-http
-	DEFAULT_NAME="$(echo "$DEFAULT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/\./-/g')" # raincity-digital-http
+	DEFAULT_NAME="${BASE_DOMAIN}-${TYPE}"                                                   # example.com-http
+	DEFAULT_NAME="$(echo "$DEFAULT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/\./-/g')" # example-com-http
 	NAME="${NAME:-$DEFAULT_NAME}"
 	NAME="$(slugify "$NAME")"
 	local UNIT
@@ -193,7 +193,7 @@ YAML
 	local DNS_OUTPUT
 	if ! DNS_OUTPUT="$(cloudflared tunnel route dns "$NAME" "$HOSTNAME" 2>&1)"; then
 		echo "[!] erro do cloudflared: $DNS_OUTPUT"
-		die "falha ao criar DNS para ${HOSTNAME}. Verifique: (1) token API configurado? (2) zona raincity.digital está na conta? (3) registro já existe?"
+		die "falha ao criar DNS para ${HOSTNAME}. Verifique: (1) token API configurado? (2) zona está na conta? (3) registro já existe?"
 	fi
 	echo "$DNS_OUTPUT"
 
@@ -213,7 +213,7 @@ YAML
 	if [[ -z "$DNS_RESULT" ]]; then
 		echo "[!] DNS ainda não resolve após 30s"
 		echo "[!] O registro CNAME pode ter sido criado no Cloudflare, mas a propagação leva tempo."
-		echo "[!] Você pode verificar no painel: https://dash.cloudflare.com/raincity.digital/dns"
+		echo "[!] Você pode verificar no painel: https://dash.cloudflare.com/"
 		read -p "Continuar mesmo assim? (s/N) " -n 1 -r || true
 		echo
 		if [[ ! "$REPLY" =~ ^[Ss]$ ]]; then
