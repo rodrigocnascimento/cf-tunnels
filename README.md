@@ -146,12 +146,19 @@ sudo systemctl daemon-reload
 ```bash
 git clone https://github.com/yourrepo/cf-tunnels.git
 cd cf-tunnels
-chmod +x run.sh
 
-# Optional: Add to PATH
-echo 'export PATH="$PATH:/path/to/cf-tunnels"' >> ~/.bashrc
-source ~/.bashrc
+# Run the installer - it will do everything automatically!
+./install.sh
 ```
+
+The installer will:
+- ✅ Install `cloudflared` if not present
+- ✅ Authenticate with Cloudflare (opens browser)
+- ✅ Create systemd template
+- ✅ Set up the directory structure
+- ✅ Create a global `cftunnel` command
+
+> 💡 Tip: Run `./install.sh --help` for installation options.
 
 ### 2. Create Your First Tunnel
 
@@ -508,6 +515,20 @@ Pull requests welcome! Please ensure shell scripts pass syntax check:
 
 ```bash
 bash -n run.sh
+```
+
+## Uninstall
+
+To remove the Cloudflare Tunnel Manager:
+
+```bash
+./uninstall.sh
+```
+
+To also remove cloudflared and all configurations:
+
+```bash
+./uninstall.sh --remove-cloudflared --remove-configs
 ```
 
 ---
