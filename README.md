@@ -1,6 +1,10 @@
 # Cloudflare Tunnel Manager
 
 <p align="center">
+  <img src="assets/logo-cf-tunnel.png" alt="Cloudflare Tunnel Manager" width="400">
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Shell-Bash-green?style=for-the-badge&logo=gnu-bash" alt="Bash">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
   <img src="https://img.shields.io/badge/Cloudflare-Tunnel-orange?style=for-the-badge&logo=cloudflare" alt="Cloudflare">
