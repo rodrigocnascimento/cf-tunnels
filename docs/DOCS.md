@@ -40,27 +40,31 @@ A Cloudflare Tunnel creates a **secure outbound connection** from your server to
 
 ## Architecture
 
-```
-                         INTERNET USERS
-                               │
-                    ┌──────────▼──────────┐
-                    │   CLOUDFLARE EDGE   │
-                    │   (TLS Termination)  │
-                    │   (DDoS Protection) │
-                    └──────────┬──────────┘
-                               │ QUIC/H2
-                    ┌──────────▼──────────┐
-                    │    cloudflared      │
-                    │   (outbound only)    │
-                    └──────────┬──────────┘
-                               │
-          ┌────────────────────┼────────────────────┐
-          │                    │                    │
-    ┌─────▼─────┐      ┌─────▼─────┐      ┌─────▼─────┐
-    │ :8080     │      │ :3000     │      │ :6379     │
-    │ Web App   │      │ API       │      │ Redis     │
-    │ HTTP      │      │ HTTP      │      │ TCP       │
-    └───────────┘      └───────────┘      └───────────┘
+```mermaid
+flowchart TB
+    subgraph Internet["Internet"]
+        Users[🌐 Internet Users]
+    end
+    
+    subgraph Cloudflare["Cloudflare Edge"]
+        Edge[TLS Termination<br/>DDoS Protection]
+    end
+    
+    subgraph Server["Your Server"]
+        CFG[☁️ cloudflared<br/>outbound only]
+        
+        subgraph Services["Local Services"]
+            WebApp[:8080<br/>Web App<br/>HTTP]
+            API[:3000<br/>API<br/>HTTP]
+            Redis[:6379<br/>Redis<br/>TCP]
+        end
+    end
+    
+    Users -->|"HTTPS"| Edge
+    Edge -->|"QUIC/H2"| CFG
+    CFG --> WebApp
+    CFG --> API
+    CFG --> Redis
 ```
 
 ### How It Works
@@ -261,31 +265,24 @@ Cloudflare's edge only handles HTTP/HTTPS directly. For TCP services, the client
 
 **How TCP Tunnels Work:**
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         SERVER                                   │
-│                                                                 │
-│   ┌─────────────┐         ┌─────────────────────────────────┐ │
-│   │   Redis     │◄────────│  cloudflared tunnel             │ │
-│   │ localhost   │         │  (tcp://localhost:6379)         │ │
-│   │ :6379       │         └──────────────┬──────────────────┘ │
-│   └─────────────┘                        │                    │
-└──────────────────────────────────────────│────────────────────┘
-                                           │
-                                    Cloudflare Edge
-                                    (TCP Protocol)
-                                           │
-┌──────────────────────────────────────────│────────────────────┐
-│                         CLIENT                                   │
-│                                                                 │
-│   ┌─────────────┐         ┌─────────────────────────────────┐ │
-│   │   Redis     │◄────────│  cloudflared access tcp         │ │
-│   │ localhost   │         │  --hostname redis.YOUR_DOMAIN.com│ │
-│   │ :6379       │         │  --url localhost:6379           │ │
-│   └──────┬──────┘         └─────────────────────────────────┘ │
-│          │                                                      │
-│          └──────────► Connect with: redis-cli -h localhost     │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant Client as Client Machine
+    participant CFG_C as cloudflared access tcp
+    participant CF as Cloudflare Edge
+    participant CFG_S as cloudflared tunnel
+    participant Server as Server
+    
+    Note over Client: redis-cli -h localhost -p 6379
+    
+    Client->>CFG_C: Connect to localhost:6379
+    CFG_C->>CF: TCP via Cloudflare Tunnel
+    CF->>CFG_S: TCP Connection
+    CFG_S->>Server: localhost:6379
+    Server-->>CFG_S: Redis Response
+    CFG_S-->>CF: Response
+    CF-->>CFG_C: Response
+    CFG_C-->>Client: Data
 ```
 
 **Step-by-Step:**
