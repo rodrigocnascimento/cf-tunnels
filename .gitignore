@@ -1,0 +1,20 @@
+# Logs
+*.log
+
+# PID files
+*.pid
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Cloudflare credentials (local only)
+*.pem
+*.json
+!cloudflared*.service
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
