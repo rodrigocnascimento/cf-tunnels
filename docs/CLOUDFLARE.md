@@ -17,21 +17,17 @@ Cloudflare is a **CDN and security company** that sits between your server and t
 
 ## How Cloudflare Tunnels Work
 
-```
-                    INTERNET
-                       │
-            ┌──────────▼──────────┐
-            │   CLOUDFLARE EDGE   │
-            │   (Worldwide CDN)   │
-            └──────────┬──────────┘
-                       │
-              Your server connects OUT
-              (no inbound ports needed!)
+```mermaid
+flowchart LR
+    Internet[🌐 Internet] --> CF[☁️ Cloudflare Edge]
+    Server -->|"outbound only"| CF
+    CF -->|"traffic"| Server
 ```
 
-**Traditional hosting:** You open port 80/443 → hackers attack → server overwhelmed
+- **Traditional hosting:** Open port 80/443 → hackers attack → server overwhelmed
+- **With Cloudflare:** Server connects OUT → Cloudflare blocks attacks → safe!
 
-**With Cloudflare:** Server connects OUT to Cloudflare → Cloudflare blocks attacks → safe!
+> 💡 Your server connects **outbound only** to Cloudflare. No inbound ports needed!
 
 ---
 
