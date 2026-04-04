@@ -43,11 +43,9 @@ Sign up at: [dash.cloudflare.com](https://dash.cloudflare.com/)
 
 ### 2. A Domain
 
-You need a domain you control. You can buy one from:
-- Namecheap
-- GoDaddy
-- Google Domains
-- Any registrar
+You need a domain you control. I buy mine from **Namecheap** because it's cheap and easy.
+
+> 💡 **Important:** After buying the domain, you must set **Custom DNS** to Cloudflare's nameservers. This is a crucial step!
 
 ### 3. Domain Pointing to Cloudflare
 
