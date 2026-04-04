@@ -12,6 +12,12 @@
 
 > A powerful CLI tool for managing Cloudflare Tunnels with systemd integration. Expose your local services to the internet securely through Cloudflare's edge network.
 
+## Documentation
+
+- **[Cloudflare Basics](docs/CLOUDFLARE.md)** — What is Cloudflare, CDN, DNS, and Zero Trust
+- **[Technical Docs](docs/DOCS.md)** — Detailed reference for all features
+- **[Changelog](CHANGELOG.md)** — Version history
+
 ## Table of Contents
 
 - [Overview](#overview)
