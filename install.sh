@@ -207,6 +207,9 @@ install_cloudflared() {
 
 	rm -rf "$temp_dir"
 
+	# Ensure ~/.local/bin is in PATH for verification
+	export PATH="$HOME/.local/bin:$PATH"
+
 	# Verify installation
 	cloudflared --version | head -1 || die "Falha ao verificar instalação"
 	log_success "cloudflared instalado com sucesso!"
