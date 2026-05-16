@@ -181,7 +181,16 @@ install_cloudflared() {
 	log_info "Baixando cloudflared para linux-${arch}..."
 
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --retry 5 --retry-delay 10 "$download_url" -o "${temp_dir}/cloudflared" || die "Falha ao baixar cloudflared"
+		local attempt=0
+		while [ $attempt -lt 5 ]; do
+			attempt=$((attempt + 1))
+			curl -fsSL --retry 3 --retry-delay 10 "$download_url" -o "${temp_dir}/cloudflared" 2>/dev/null && break
+			log_warning "Tentativa $attempt/5 falhou. Tentando novamente em 10s..."
+			sleep 10
+		done
+		if [ $attempt -ge 5 ] && [ ! -f "${temp_dir}/cloudflared" ]; then
+			die "Falha ao baixar cloudflared após 5 tentativas"
+		fi
 	elif command -v wget >/dev/null 2>&1; then
 		wget -q "$download_url" -O "${temp_dir}/cloudflared" || die "Falha ao baixar cloudflared"
 	else
