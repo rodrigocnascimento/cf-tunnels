@@ -184,7 +184,7 @@ install_cloudflared() {
 		local attempt=0
 		while [ $attempt -lt 5 ]; do
 			attempt=$((attempt + 1))
-			curl -fsSL --retry 3 --retry-delay 10 "$download_url" -o "${temp_dir}/cloudflared" 2>/dev/null && break
+			curl -fSL --http1.1 --retry 3 --retry-delay 10 "$download_url" -o "${temp_dir}/cloudflared" && break
 			log_warning "Tentativa $attempt/5 falhou. Tentando novamente em 10s..."
 			sleep 10
 		done
