@@ -159,8 +159,6 @@ install_cloudflared() {
 
 	log_info "Instalando cloudflared..."
 
-	local temp_dir="$HOME/.local/bin/.cloudflared.tmp"
-	mkdir -p "$temp_dir"
 	local arch
 	arch=$(uname -m)
 
@@ -178,43 +176,43 @@ install_cloudflared() {
 
 	local download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}"
 
+	# Determine final location
+	local bin_dir="$HOME/.local/bin"
+	local final_bin="$bin_dir/cloudflared"
+	local system_bin="/usr/local/bin/cloudflared"
+
 	log_info "Baixando cloudflared para linux-${arch}..."
 
 	if command -v curl >/dev/null 2>&1; then
+		mkdir -p "$bin_dir"
 		local attempt=0
 		while [ $attempt -lt 5 ]; do
 			attempt=$((attempt + 1))
-			curl -fSL --http1.1 --retry 3 --retry-delay 10 "$download_url" -o "${temp_dir}/cloudflared" && break
+			curl -fSL --http1.1 --retry 3 --retry-delay 10 "$download_url" -o "$final_bin" && break
 			log_warning "Tentativa $attempt/5 falhou. Tentando novamente em 10s..."
 			sleep 10
 		done
-		if [ $attempt -ge 5 ] && [ ! -f "${temp_dir}/cloudflared" ]; then
+		if [ $attempt -ge 5 ] && [ ! -f "$final_bin" ]; then
 			die "Falha ao baixar cloudflared após 5 tentativas"
 		fi
 	elif command -v wget >/dev/null 2>&1; then
-		wget -q "$download_url" -O "${temp_dir}/cloudflared" || die "Falha ao baixar cloudflared"
+		mkdir -p "$bin_dir"
+		wget -q "$download_url" -O "$final_bin" || die "Falha ao baixar cloudflared"
 	else
 		die "Nem curl nem wget estão disponíveis"
 	fi
 
-	chmod +x "${temp_dir}/cloudflared"
+	chmod +x "$final_bin"
 
-	# Try to install system-wide first
+	# Attempt system-wide install if writable
 	if [[ -w /usr/local/bin ]] || [[ $EUID -eq 0 ]]; then
-		sudo mv "${temp_dir}/cloudflared" /usr/local/bin/cloudflared ||
-			mv "${temp_dir}/cloudflared" /usr/local/bin/cloudflared
-		sudo chmod +x /usr/local/bin/cloudflared
-		log_success "cloudflared instalado em /usr/local/bin/cloudflared"
+		sudo mv "$final_bin" "$system_bin" || mv "$final_bin" "$system_bin"
+		sudo chmod +x "$system_bin"
+		log_success "cloudflared instalado em $system_bin"
 	else
-		# Install to user's local bin
-		mkdir -p "$HOME/.local/bin"
-		mv "${temp_dir}/cloudflared" "$HOME/.local/bin/cloudflared"
-		chmod +x "$HOME/.local/bin/cloudflared"
-		log_success "cloudflared instalado em $HOME/.local/bin/cloudflared"
-		log_warning "Adicione $HOME/.local/bin ao seu PATH se ainda não estiver"
+		log_success "cloudflared instalado em $final_bin"
+		log_warning "Adicione $bin_dir ao seu PATH se ainda não estiver"
 	fi
-
-	rm -rf "$temp_dir"
 
 	# Ensure ~/.local/bin is in PATH for verification
 	export PATH="$HOME/.local/bin:$PATH"
