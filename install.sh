@@ -181,7 +181,7 @@ install_cloudflared() {
 	log_info "Baixando cloudflared para linux-${arch}..."
 
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL "$download_url" -o "${temp_dir}/cloudflared" || die "Falha ao baixar cloudflared"
+		curl -fsSL --retry 5 --retry-delay 10 "$download_url" -o "${temp_dir}/cloudflared" || die "Falha ao baixar cloudflared"
 	elif command -v wget >/dev/null 2>&1; then
 		wget -q "$download_url" -O "${temp_dir}/cloudflared" || die "Falha ao baixar cloudflared"
 	else
