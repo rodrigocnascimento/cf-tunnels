@@ -159,8 +159,8 @@ install_cloudflared() {
 
 	log_info "Instalando cloudflared..."
 
-	local temp_dir
-	temp_dir=$(mktemp -d)
+	local temp_dir="$HOME/.local/bin/.cloudflared-install"
+	mkdir -p "$temp_dir"
 	local arch
 	arch=$(uname -m)
 
