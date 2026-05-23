@@ -177,9 +177,11 @@ remove_systemd_template() {
 
 	if confirm "Isso também parará todos os túneis em execução. Continuar?"; then
 		if [[ $EUID -eq 0 ]]; then
+			systemctl stop 'cloudflared@*' 2>/dev/null || true
 			rm -f "$SYSTEMD_TEMPLATE"
 			systemctl daemon-reload
 		else
+			sudo systemctl stop 'cloudflared@*' 2>/dev/null || true
 			sudo rm -f "$SYSTEMD_TEMPLATE"
 			sudo systemctl daemon-reload
 		fi
