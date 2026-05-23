@@ -71,7 +71,7 @@ DUMP_FILE="/tmp/cf_ssh_diag_${TS}.log"
 redact() {
   sed -E \
     -e 's/(credentials-file:).*/\1 REDACTED/gI' \
-    -e 's/(--credentials-file[ =]).*/\1REDAED/gI' \
+		-e 's/(--credentials-file[ =]).*/\1REDACTED/gI' \
     -e 's/(token=|authorization: Bearer )[[:alnum:]_.=-]+/\1REDACTED/gI'
 }
 dump() {
