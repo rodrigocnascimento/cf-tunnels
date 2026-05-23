@@ -102,8 +102,9 @@ Cloudflare Zero Trust adds **authentication** to your tunnels. Instead of anyone
 - [ ] Add your domain to Cloudflare
 - [ ] Update nameservers at your registrar
 - [ ] Wait for DNS propagation (up to 24h)
+- [ ] Verify DNS: `dig @1.1.1.1 +short api.example.com` (uses Cloudflare's resolver) or `getent ahosts api.example.com` (built-in fallback)
 - [ ] Install cloudflared: `cloudflared tunnel login`
-- [ ] Use this project to create tunnels!
+- [ ] Create tunnels: `cftunnel add --hostname api.example.com --type http --service http://localhost:3000`
 
 ---
 

@@ -97,6 +97,7 @@ sequenceDiagram
 | `jq` | `sudo apt install jq` |
 | `systemd` | Included with most Linux distros |
 | `sudo` | Pre-installed on most systems |
+| `dig` (optional) | Incluído no `bind-tools`/`dnsutils`. Fallback automático para `getent ahosts` (built-in) se ausente |
 | Cloudflare Account | [Sign Up](https://dash.cloudflare.com/) |
 
 ### Install cloudflared
@@ -130,8 +131,23 @@ Type=simple
 User=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME
 ExecStart=/usr/local/bin/cloudflared tunnel --config /home/YOUR_USERNAME/.cloudflared/%i.yml run
-Restart=always
+Restart=on-failure
 RestartSec=2
+StartLimitIntervalSec=30
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+
+# Reduce logging verbosity
+Environment="CLOUDFLARED_LOGLEVEL=info"
+
+# Security: systemd sandbox
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=true
+MemoryMax=256M
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
@@ -177,6 +193,9 @@ The installer will:
 
 # For a database (Redis, PostgreSQL, etc.)
 ./run.sh add --hostname redis.example.com --type tcp --service tcp://localhost:6379
+
+# Skip DNS when using external DNS management (Terraform, manual, etc.)
+./run.sh add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
 ```
 
 ### 3. Manage Your Tunnels
@@ -213,6 +232,7 @@ The installer will:
 | `--type` | ✅ Yes | Protocol type | `http`, `ssh`, or `tcp` |
 | `--service` | ✅ Yes | Local service URL | `http://localhost:8080` |
 | `--name` | ❌ No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
+| `--no-dns` | ❌ No | Skip automatic DNS CNAME creation | Useful when DNS is managed externally |
 
 ### Service URL Formats
 
@@ -368,9 +388,9 @@ originRequest:
   connectTimeout: 10s
 
 ingress:
-  - hostname: api.example.com
+  - hostname: "api.example.com"
     service: http://localhost:3000
-  - hostname: admin.example.com
+  - hostname: "*.example.com"
     service: http://localhost:8080
   - service: http_status:404
 ```
@@ -485,9 +505,14 @@ systemctl list-units 'cloudflared@*' --no-legend | awk '{print $1}' | \
 ### Protect Sensitive Files
 
 ```bash
+# O script automaticamente aplica chmod 600 aos YAMLs gerados.
+# Para os arquivos existentes:
 chmod 600 ~/.cloudflared/cert.pem
 chmod 600 ~/.cloudflared/*.json
+chmod 600 ~/.cloudflared/*.yml
 ```
+
+> O systemd template inclui diretivas de sandbox (`NoNewPrivileges`, `PrivateTmp`, `RestrictAddressFamilies`, `MemoryMax`, etc.) que restringem o que o processo `cloudflared` pode fazer, mesmo em caso de comprometimento.
 
 ### Use Cloudflare Access
 
