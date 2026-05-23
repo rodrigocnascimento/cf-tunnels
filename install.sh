@@ -283,13 +283,23 @@ Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
 ExecStart=/usr/local/bin/cloudflared tunnel --config ${user_home}/.cloudflared/%i.yml run
-Restart=always
+Restart=on-failure
 RestartSec=2
+StartLimitIntervalSec=30
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
-# Reduce logging verbosity
+# Reduzir verbosidade de logs
 Environment="CLOUDFLARED_LOGLEVEL=info"
+
+# Segurança: sandbox via systemd
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=true
+MemoryMax=256M
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
@@ -307,13 +317,23 @@ Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
 ExecStart=/usr/local/bin/cloudflared tunnel --config ${user_home}/.cloudflared/%i.yml run
-Restart=always
+Restart=on-failure
 RestartSec=2
+StartLimitIntervalSec=30
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
-# Reduce logging verbosity
+# Reduzir verbosidade de logs
 Environment="CLOUDFLARED_LOGLEVEL=info"
+
+# Segurança: sandbox via systemd
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=true
+MemoryMax=256M
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
