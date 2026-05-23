@@ -86,6 +86,7 @@ flowchart TB
 | `jq` | `sudo apt install jq` (Debian/Ubuntu) |
 | `systemd` | Pre-installed on most Linux distros |
 | `sudo` access | Pre-installed |
+| `dig` (optional) | `sudo apt install bind-tools` (Debian) ou `sudo apt install dnsutils` (Ubuntu). Fallback automático para `getent ahosts` (built-in) se ausente. |
 | Cloudflare account | [Sign Up Free](https://dash.cloudflare.com/) |
 
 ### Install cloudflared
@@ -140,8 +141,23 @@ Type=simple
 User=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME
 ExecStart=/usr/local/bin/cloudflared tunnel --config /home/YOUR_USERNAME/.cloudflared/%i.yml run
-Restart=always
+Restart=on-failure
 RestartSec=2
+StartLimitIntervalSec=30
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+
+# Reduce logging verbosity
+Environment="CLOUDFLARED_LOGLEVEL=info"
+
+# Security: systemd sandbox
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictRealtime=true
+MemoryMax=256M
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
@@ -188,6 +204,7 @@ cf-tunnels/                          # Project root
 | Command | Description | Example |
 |---------|-------------|---------|
 | `add` | Create new tunnel | `cftunnel add --hostname api.example.com --type http --service http://localhost:3000` |
+| `add --no-dns` | Create tunnel without DNS | `cftunnel add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns` |
 | `remove` | Delete tunnel | `cftunnel remove --name api-example-com-http` |
 | `start` | Start tunnel | `cftunnel start --name my-tunnel` |
 | `stop` | Stop tunnel | `cftunnel stop --name my-tunnel` |
@@ -203,6 +220,7 @@ cf-tunnels/                          # Project root
 | `--type` | ✅ Yes | Protocol type | `http`, `ssh`, `tcp` |
 | `--service` | ✅ Yes | Local service URL | `http://localhost:3000` |
 | `--name` | No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
+| `--no-dns` | No | Skip automatic DNS CNAME creation | Use when DNS is managed externally |
 
 ### Service URL Formats
 
@@ -358,9 +376,9 @@ originRequest:
 
 # Ingress rules (routing)
 ingress:
-  - hostname: api.example.com
+  - hostname: "api.example.com"
     service: http://localhost:3000
-  - hostname: admin.example.com
+  - hostname: "*.example.com"
     service: http://localhost:8080
   - service: http_status:404
 ```
@@ -373,7 +391,7 @@ ingress:
 | `edge-ip-version` | `4` | IP version (`4`, `6`, or `auto`) |
 | `tcpKeepAlive` | `30s` | TCP keepalive interval |
 | `keepAliveTimeout` | `2m` | Connection idle timeout |
-| `connectTimeout` | `30s` | Origin connection timeout |
+| `connectTimeout` | `10s` | Origin connection timeout |
 
 ---
 
@@ -547,15 +565,29 @@ Navigate: **Zero Trust** → **Networks** → **Tunnels**
 ### Protect Sensitive Files
 
 ```bash
-# Set correct permissions
+# YAML files are automatically set to 600 by the script.
+# For existing files, apply manually:
 chmod 600 ~/.cloudflared/cert.pem
 chmod 600 ~/.cloudflared/*.json
 chmod 600 ~/.cloudflared/*.yml
 ```
 
-### Use Cloudflare Access
+### Systemd Sandbox
 
-For sensitive services, add authentication:
+The systemd template includes hardening directives that restrict the `cloudflared` process:
+
+| Directive | Effect |
+|-----------|--------|
+| `NoNewPrivileges=true` | Prevents privilege escalation via setuid/setgid |
+| `PrivateTmp=true` | Isolates `/tmp` per service instance |
+| `RestrictAddressFamilies=AF_INET AF_INET6` | Only IP sockets allowed |
+| `RestrictRealtime=true` | Blocks realtime scheduling |
+| `MemoryMax=256M` | Hard memory ceiling |
+| `LimitNOFILE=65536` | File descriptor limit for concurrent connections |
+| `Restart=on-failure` | Restart only on crash, not on clean stop |
+| `StartLimitIntervalSec=30` / `StartLimitBurst=5` | Caps restart storms at 5 failures in 30s |
+
+### Use Cloudflare Access
 
 1. Go to [Zero Trust Dashboard](https://dash.cloudflare.com/)
 2. **Access** → **Applications** → **Create an application**
@@ -604,11 +636,17 @@ sudo netstat -tlnp | grep <port>
 ### DNS Not Resolving
 
 ```bash
+# O script usa dig por padrão (Tier 1), com fallback automático para:
+#   Tier 2: host (CNAME) → Tier 3: getent ahosts (apenas IP, built-in)
+# Para verificar manualmente:
+
 # Check with Cloudflare DNS (most reliable)
 dig @1.1.1.1 +short api.YOUR_DOMAIN.com
 
-# Check with Google DNS
-dig @8.8.8.8 +short api.YOUR_DOMAIN.com
+# Se dig não estiver instalado:
+host api.YOUR_DOMAIN.com
+# ou (built-in, sem dependências):
+getent ahosts api.YOUR_DOMAIN.com
 
 # Expected result: <uuid>.cfargotunnel.com
 ```
