@@ -136,7 +136,7 @@ confirm() {
 		return 0
 	fi
 
-	local prompt="${1:-Continuar?}"
+	local prompt="${1:-Continue?}"
 	read -p "$prompt [y/N] " -n 1 -r
 	echo
 	[[ $REPLY =~ ^[Yy]$ ]]
@@ -148,11 +148,11 @@ confirm() {
 
 remove_symlink() {
 	if [[ ! -L "$SYMLINK_PATH" ]] && [[ ! -f "$SYMLINK_PATH" ]]; then
-		log_info "Symlink não encontrado (já removido ou nunca criado): $SYMLINK_PATH"
+		log_info "Symlink not found (already removed or never created): $SYMLINK_PATH"
 		return 0
 	fi
 
-	log_info "Removendo symlink: $SYMLINK_PATH"
+	log_info "Removing symlink: $SYMLINK_PATH"
 
 	if [[ $EUID -eq 0 ]]; then
 		rm -f "$SYMLINK_PATH"
@@ -160,7 +160,7 @@ remove_symlink() {
 		sudo rm -f "$SYMLINK_PATH"
 	fi
 
-	log_success "Symlink removido"
+	log_success "Symlink removed"
 }
 
 # =============================================================================
@@ -169,13 +169,13 @@ remove_symlink() {
 
 remove_systemd_template() {
 	if [[ ! -f "$SYSTEMD_TEMPLATE" ]]; then
-		log_info "Template systemd não encontrado (já removido): $SYSTEMD_TEMPLATE"
+		log_info "Systemd template not found (already removed): $SYSTEMD_TEMPLATE"
 		return 0
 	fi
 
-	log_info "Removendo template systemd: $SYSTEMD_TEMPLATE"
+	log_info "Removing systemd template: $SYSTEMD_TEMPLATE"
 
-	if confirm "Isso também parará todos os túneis em execução. Continuar?"; then
+	if confirm "This will also stop all running tunnels. Continue?"; then
 		if [[ $EUID -eq 0 ]]; then
 			systemctl stop 'cloudflared@*' 2>/dev/null || true
 			rm -f "$SYSTEMD_TEMPLATE"
@@ -185,9 +185,9 @@ remove_systemd_template() {
 			sudo rm -f "$SYSTEMD_TEMPLATE"
 			sudo systemctl daemon-reload
 		fi
-		log_success "Template systemd removido"
+		log_success "Systemd template removed"
 	else
-		log_warning "Mantendo template systemd"
+		log_warning "Keeping systemd template"
 	fi
 }
 
@@ -197,11 +197,11 @@ remove_systemd_template() {
 
 remove_cloudflared() {
 	if ! command -v cloudflared >/dev/null 2>&1; then
-		log_info "cloudflared não encontrado (já removido ou não instalado)"
+		log_info "cloudflared not found (already removed or not installed)"
 		return 0
 	fi
 
-	log_info "Removendo cloudflared..."
+	log_info "Removing cloudflared..."
 
 	if [[ $EUID -eq 0 ]]; then
 		rm -f /usr/local/bin/cloudflared
@@ -214,7 +214,7 @@ remove_cloudflared() {
 	# Also check in ~/.local/bin
 	rm -f "$HOME/.local/bin/cloudflared"
 
-	log_success "cloudflared removido"
+	log_success "cloudflared removed"
 }
 
 # =============================================================================
@@ -223,17 +223,17 @@ remove_cloudflared() {
 
 remove_auth() {
 	if [[ ! -f "$CLOUDFLARED_DIR/cert.pem" ]]; then
-		log_info "Certificado de autenticação não encontrado: $CLOUDFLARED_DIR/cert.pem"
+		log_info "Authentication certificate not found: $CLOUDFLARED_DIR/cert.pem"
 		return 0
 	fi
 
-	log_info "Removendo autenticação Cloudflare..."
+	log_info "Removing Cloudflare authentication..."
 
-	if confirm "Isso removerá: $CLOUDFLARED_DIR/cert.pem. Você precisará fazer login novamente. Continuar?"; then
+	if confirm "This will remove: $CLOUDFLARED_DIR/cert.pem. You will need to log in again. Continue?"; then
 		rm -f "$CLOUDFLARED_DIR/cert.pem"
-		log_success "Autenticação removida"
+		log_success "Authentication removed"
 	else
-		log_warning "Mantendo autenticação"
+		log_warning "Keeping authentication"
 	fi
 }
 
@@ -243,17 +243,17 @@ remove_auth() {
 
 remove_configs() {
 	if [[ ! -d "$CLOUDFLARED_DIR" ]]; then
-		log_info "Diretório de configurações não encontrado: $CLOUDFLARED_DIR"
+		log_info "Config directory not found: $CLOUDFLARED_DIR"
 		return 0
 	fi
 
-	log_info "Removendo configurações: $CLOUDFLARED_DIR"
+	log_info "Removing configurations: $CLOUDFLARED_DIR"
 
-	if confirm "Isso removerá TODOS os túneis e configurações. ESSA AÇÃO NÃO PODE SER DESFEITA. Continuar?"; then
+	if confirm "This will remove ALL tunnels and configurations. THIS ACTION CANNOT BE UNDONE. Continue?"; then
 		rm -rf "$CLOUDFLARED_DIR"
-		log_success "Configurações removidas"
+		log_success "Configurations removed"
 	else
-		log_warning "Mantendo configurações"
+		log_warning "Keeping configurations"
 	fi
 }
 
@@ -264,13 +264,13 @@ remove_configs() {
 main() {
 	echo
 	echo "════════════════════════════════════════════════════════════════"
-	echo -e "       ${YELLOW}Cloudflare Tunnel Manager - Desinstalador${NC}"
+	echo -e "       ${YELLOW}Cloudflare Tunnel Manager - Uninstaller${NC}"
 	echo "════════════════════════════════════════════════════════════════"
 	echo
 
 	parse_args "$@"
 
-	echo "Opções seleccionadas:"
+	echo "Selected options:"
 	echo "  Remove cloudflared: $REMOVE_CLOUDFLARED"
 	echo "  Remove auth:        $REMOVE_AUTH"
 	echo "  Remove configs:     $REMOVE_CONFIGS"
@@ -280,7 +280,7 @@ main() {
 	if [[ "$REMOVE_CLOUDFLARED" == false ]] &&
 		[[ "$REMOVE_AUTH" == false ]] &&
 		[[ "$REMOVE_CONFIGS" == false ]]; then
-		log_info "Removendo apenas o gerenciador (manter cloudflared e configurações)"
+		log_info "Removing only the manager (keeping cloudflared and configurations)"
 	fi
 
 	# Removal steps
@@ -301,11 +301,11 @@ main() {
 
 	echo
 	echo "════════════════════════════════════════════════════════════════"
-	echo -e "              ${GREEN}DESINSTALAÇÃO CONCLUÍDA${NC}"
+	echo -e "              ${GREEN}UNINSTALL COMPLETE${NC}"
 	echo "════════════════════════════════════════════════════════════════"
 	echo
-	log_info "O diretório $SCRIPT_DIR ainda existe."
-	log_info "Você pode removê-lo manualmente com: rm -rf $SCRIPT_DIR"
+	log_info "The directory $SCRIPT_DIR still exists."
+	log_info "You can remove it manually with: rm -rf $SCRIPT_DIR"
 	echo
 }
 

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# cftunnel — gerenciador de túneis por subdomínio (modo "um YAML por túnel")
+# cftunnel — per-subdomain tunnel manager (one YAML per tunnel)
 #
-# fluxo do comando "add":
-#   1. validar flags (hostname, type, service)
-#   2. criar túnel Cloudflare (se ainda não existir)
-#   3. gerar YAML com ingress rules (hostname → origem local)
-#   4. validar ingress via cloudflared
-#   5. verificar DNS existente e criar rota CNAME (--no-dns pula esta etapa)
-#   6. aguardar propagação DNS e verificar resolução
-#   7. habilitar e iniciar serviço systemd (cloudflared@NAME)
+# "add" command flow:
+#   1. validate flags (hostname, type, service)
+#   2. create Cloudflare tunnel (if it doesn't exist yet)
+#   3. generate YAML with ingress rules (hostname → local origin)
+#   4. validate ingress via cloudflared
+#   5. check existing DNS and create CNAME route (--no-dns skips this step)
+#   6. wait for DNS propagation and verify resolution
+#   7. enable and start systemd service (cloudflared@NAME)
 #
-# uso básico:
+# basic usage:
 #   cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22 --name ssh-config
 #   cftunnel add --hostname api.example.com --type http --service http://localhost:4000
 #   cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379 --no-dns
@@ -20,42 +20,42 @@ set -euo pipefail
 #   cftunnel start|stop|status|logs --name ssh-config
 #   cftunnel list
 #
-# IMPORTANTE: Para túneis TCP/UDP (Redis, bancos de dados, etc.):
-#   1. O túnel é criado no servidor com este script
-#   2. Na máquina cliente QUE VAI ACESSAR o serviço, execute:
+# IMPORTANT: For TCP/UDP tunnels (Redis, databases, etc.):
+#   1. The tunnel is created on the server with this script
+#   2. On the client machine THAT WILL ACCESS the service, run:
 #      cloudflared access tcp --hostname <HOSTNAME> --url localhost:<PORT>
-#   3. Então conecte seu aplicativo em localhost:<PORT> (não no hostname público)
-#   4. O tráfego fluirá criptografadamente através do túnel Cloudflare
+#   3. Then connect your application to localhost:<PORT> (not the public hostname)
+#   4. Traffic will flow encrypted through the Cloudflare tunnel
 #
-# Exemplo para acesso ao Redis a partir de outra máquina:
-#   No servidor: cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
-#   No cliente:  cloudflared access tcp --hostname redis.example.com --url localhost:6379
-#   Depois:      redis-cli -h localhost -p 6379
+# Example for Redis access from another machine:
+#   On server: cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
+#   On client: cloudflared access tcp --hostname redis.example.com --url localhost:6379
+#   Then:      redis-cli -h localhost -p 6379
 
-# ===== Config padrão =======================================================
+# ===== Default config ======================================================
 RUN_USER="${RUN_USER:-$USER}"
 HOME_DIR="$(getent passwd "$RUN_USER" | cut -d: -f6 2>/dev/null || echo "$HOME")"
 CLOUDFLARED_BIN="$(command -v cloudflared || true)"
 BASE_DIR="$HOME_DIR/.cloudflared"
 SYSTEMD_TPL="/etc/systemd/system/cloudflared@.service"
 
-# ===== Utilidades ==========================================================
+# ===== Utilities ===========================================================
 die() {
-	echo "erro: $*" >&2
+	echo "error: $*" >&2
 	exit 1
 }
-need() { command -v "$1" >/dev/null 2>&1 || die "comando obrigatório não encontrado: $1"; }
+need() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
 
-# Gera nome seguro para instância systemd a partir do hostname/nome.
-# Sanitiza caracteres especiais para que o nome seja válido como unidade systemd
-# (apenas [a-z0-9] e hífens, sem hífens no início ou final).
+# Generate a safe name for a systemd instance from a hostname or custom name.
+# Sanitizes special characters so the name is valid as a systemd unit
+# (only [a-z0-9] and hyphens, no leading or trailing hyphens).
 slugify() {
 	echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'
 }
 
 ensure_template() {
-	[[ -f "$SYSTEMD_TPL" ]] || die "template systemd não encontrado: $SYSTEMD_TPL
-Crie-o conforme combinamos (ExecStart=/usr/local/bin/cloudflared tunnel --config $HOME/.cloudflared/%i.yml run; User=$RUN_USER)."
+	[[ -f "$SYSTEMD_TPL" ]] || die "systemd template not found: $SYSTEMD_TPL
+Create it as configured (ExecStart=/usr/local/bin/cloudflared tunnel --config $HOME/.cloudflared/%i.yml run; User=$RUN_USER)."
 }
 
 instance_unit() { echo "cloudflared@${1}.service"; }
@@ -64,11 +64,11 @@ yaml_path_for() { echo "$BASE_DIR/${1}.yml"; }
 
 json_path_for_uuid() { echo "$BASE_DIR/${1}.json"; }
 
-# Resolve hostname via DNS com fallback em 3 tiers (sem dependências externas):
-#   Tier 1: dig @1.1.1.1 (Cloudflare DNS — mostra CNAME, ideal para validar cfargotunnel.com)
-#   Tier 2: host           (alternativa com CNAME, mesmo pacote do dig)
-#   Tier 3: getent ahosts  (built-in glibc — retorna apenas IP, sem CNAME)
-# Se nenhuma ferramenta estiver disponível, retorna string vazia.
+# Resolve hostname via DNS with 3-tier fallback (no external dependencies):
+#   Tier 1: dig @1.1.1.1 (Cloudflare DNS — shows CNAME, ideal for validating cfargotunnel.com)
+#   Tier 2: host           (alternative with CNAME support, same package as dig)
+#   Tier 3: getent ahosts  (glibc built-in — returns IP only, no CNAME)
+# If no tool is available, returns an empty string.
 resolve_hostname() {
 	local hostname="$1"
 
@@ -90,21 +90,21 @@ resolve_hostname() {
 	echo ""
 }
 
-# Verifica se há ferramenta capaz de consultar registros CNAME (dig ou host).
-# getent ahosts só retorna IPs — sem CNAME não é possível validar o padrão cfargotunnel.com.
+# Check whether a CNAME-capable lookup tool is available (dig or host).
+# getent ahosts only returns IPs — without CNAME, the cfargotunnel.com pattern cannot be validated.
 has_cname_lookup() {
 	command -v dig >/dev/null 2>&1 || command -v host >/dev/null 2>&1
 }
 
 print_usage() {
 	cat <<USAGE
-Uso:
+Usage:
   $0 add --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--no-dns]
   $0 remove --name NAME
   $0 start|stop|status|logs --name NAME
   $0 list
 
-Exemplos:
+Examples:
   $0 add --hostname ssh.example.com  --type ssh  --service ssh://localhost:22  --name ssh-config
   $0 add --hostname api.example.com  --type http --service http://localhost:4000
   $0 add --hostname redis.example.com --type tcp --service tcp://localhost:6379 --no-dns
@@ -113,33 +113,33 @@ USAGE
 }
 
 validate_flags_add() {
-	[[ -n "${TUNNEL_HOSTNAME:-}" ]] || die "--hostname é obrigatório"
-	[[ -n "${TYPE:-}" ]] || die "--type ssh|http|tcp é obrigatório"
-	[[ -n "${SERVICE:-}" ]] || die "--service é obrigatório (ex: ssh://localhost:22, http://localhost:4000, tcp://localhost:6379)"
+	[[ -n "${TUNNEL_HOSTNAME:-}" ]] || die "--hostname is required"
+	[[ -n "${TYPE:-}" ]] || die "--type ssh|http|tcp is required"
+	[[ -n "${SERVICE:-}" ]] || die "--service is required (e.g.: ssh://localhost:22, http://localhost:4000, tcp://localhost:6379)"
 	case "$TYPE" in
 	ssh | http | tcp) : ;;
-	*) die "--type inválido: $TYPE (use ssh|http|tcp)" ;;
+	*) die "--type invalid: $TYPE (use ssh|http|tcp)" ;;
 	esac
 
-	# Validar que TYPE corresponde ao esquema do SERVICE
+	# Validate that TYPE matches the SERVICE scheme
 	case "$TYPE" in
 	ssh)
-		[[ "$SERVICE" == ssh://* ]] || die "--type ssh requer --service ssh://... (ex: ssh://localhost:22)"
+		[[ "$SERVICE" == ssh://* ]] || die "--type ssh requires --service ssh://... (e.g.: ssh://localhost:22)"
 		;;
 	http)
-		[[ "$SERVICE" == http://* ]] || die "--type http requer --service http://... (ex: http://localhost:4000)"
+		[[ "$SERVICE" == http://* ]] || die "--type http requires --service http://... (e.g.: http://localhost:4000)"
 		;;
 	tcp)
-		[[ "$SERVICE" == tcp://* ]] || die "--type tcp requer --service tcp://... (ex: tcp://localhost:6379)"
+		[[ "$SERVICE" == tcp://* ]] || die "--type tcp requires --service tcp://... (e.g.: tcp://localhost:6379)"
 		;;
 	esac
 
 	if [[ $EUID -ne 0 ]]; then
-		sudo -v || die "precisa de permissão sudo"
+		sudo -v || die "needs sudo permission"
 	fi
 }
 
-# ===== Operações ===========================================================
+# ===== Operations ==========================================================
 op_add() {
 	need cloudflared
 	need jq
@@ -147,7 +147,7 @@ op_add() {
 
 	validate_flags_add
 
-	# Deriva NAME se não informado: usa domínio-base + tipo (ex.: example.com + http → example-com-http)
+	# Derive NAME if not provided: uses base-domain + type (e.g.: example.com + http → example-com-http)
 	local BASE_DOMAIN
 	BASE_DOMAIN="$(echo "$TUNNEL_HOSTNAME" | rev | cut -d. -f1-2 | rev)"
 	local DEFAULT_NAME
@@ -162,29 +162,29 @@ op_add() {
 
 	mkdir -p "$BASE_DIR"
 
-	# 1) Criar túnel (se ainda não existir com esse nome)
+	# 1) Create tunnel (if it doesn't already exist with this name)
 	if ! $CLOUDFLARED_BIN tunnel list --output json | jq -er ".[] | select(.name==\"$NAME\")" >/dev/null 2>&1; then
-		echo "[+] criando túnel: $NAME"
+		echo "[+] creating tunnel: $NAME"
 		$CLOUDFLARED_BIN tunnel create "$NAME" >/dev/null
 	else
-		echo "[=] túnel '$NAME' já existe (ok)"
+		echo "[=] tunnel '$NAME' already exists (ok)"
 	fi
 
-	# 2) Capturar UUID e credenciais
+	# 2) Capture UUID and credentials
 	local UUID
 	UUID="$($CLOUDFLARED_BIN tunnel list --output json | jq -r ".[] | select(.name==\"$NAME\") | .id")"
-	[[ -n "$UUID" && "$UUID" != "null" ]] || die "não consegui obter UUID do túnel '$NAME'"
+	[[ -n "$UUID" && "$UUID" != "null" ]] || die "could not get UUID for tunnel '$NAME'"
 	local CREDS_JSON="$BASE_DIR/${UUID}.json"
-	[[ -f "$CREDS_JSON" ]] || die "credenciais não encontradas: $CREDS_JSON (rode 'cloudflared tunnel login' e re-crie o túnel)"
+	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (run 'cloudflared tunnel login' and recreate the tunnel)"
 
-	# 3) Escrever YAML com:
-	#    tunnel:         UUID do túnel Cloudflare
-	#    credentials:    chave de autenticação do túnel (arquivo JSON)
-	#    protocol:       http2 (recomendado; h2mux é legado)
-	#    edge-ip-version: 4 (IPv4 only; use "6" ou "auto" para dual-stack)
-	#    originRequest:  timeouts e keepalive da conexão até o serviço local
-	#    ingress:        roteamento hostname → serviço local (última regra é o catch-all 404)
-	echo "[+] escrevendo YAML: $YAML"
+	# 3) Write YAML with:
+	#    tunnel:         Cloudflare tunnel UUID
+	#    credentials:    tunnel authentication key (JSON file)
+	#    protocol:       http2 (recommended; h2mux is legacy)
+	#    edge-ip-version: 4 (IPv4 only; use "6" or "auto" for dual-stack)
+	#    originRequest:  timeouts and keepalive for the connection to the local service
+	#    ingress:        hostname → local service routing (last rule is the catch-all 404)
+	echo "[+] writing YAML: $YAML"
 	cat >"$YAML" <<YAML
 tunnel: ${UUID}
 credentials-file: ${CREDS_JSON}
@@ -204,110 +204,110 @@ ingress:
 YAML
 	chmod 600 "$YAML"
 
-	# 4) Validar ingress
-	echo "[+] validando ingress"
+	# 4) Validate ingress
+	echo "[+] validating ingress"
 	$CLOUDFLARED_BIN tunnel --config "$YAML" ingress validate
 
-	# 5) DNS: verificar existente, criar rota CNAME, aguardar propagação
+	# 5) DNS: check existing records, create CNAME route, wait for propagation
 	if [[ "${NO_DNS:-false}" == true ]]; then
-		echo "[=] --no-dns: pulando criação de DNS"
-		echo "[=] Crie o registro CNAME manualmente no painel Cloudflare:"
+		echo "[=] --no-dns: skipping DNS creation"
+		echo "[=] Create the CNAME record manually in the Cloudflare dashboard:"
 		echo "    ${TUNNEL_HOSTNAME} → ${UUID}.cfargotunnel.com"
 	else
-		# 5.1) Verificar DNS existente antes de criar rota
-		echo "[+] verificando DNS existente para ${TUNNEL_HOSTNAME}..."
+		# 5.1) Check existing DNS before creating route
+		echo "[+] checking existing DNS for ${TUNNEL_HOSTNAME}..."
 		local EXISTING_DNS
 		EXISTING_DNS="$(resolve_hostname "$TUNNEL_HOSTNAME")"
 		if [[ -n "$EXISTING_DNS" ]]; then
 			if has_cname_lookup && [[ "$EXISTING_DNS" == *".cfargotunnel.com"* ]]; then
-				echo "[=] DNS já aponta para cfargotunnel (ok)"
+				echo "[=] DNS already points to cfargotunnel (ok)"
 			elif ! has_cname_lookup; then
-				echo "[=] DNS resolve: $EXISTING_DNS (verificação de CNAME indisponível sem dig/host)"
+				echo "[=] DNS resolves: $EXISTING_DNS (CNAME verification unavailable without dig/host)"
 			else
-				echo "[!] AVISO: ${TUNNEL_HOSTNAME} já tem DNS: $EXISTING_DNS"
-				echo "[!] Isso pode causar erro 1003 ao criar rota CNAME."
-				echo "[!] Recomendação: remova o registro DNS existente (A/CNAME) no painel da Cloudflare antes de continuar."
-				read -p "Continuar mesmo assim? (s/N) " -n 1 -r || true
+				echo "[!] WARNING: ${TUNNEL_HOSTNAME} already has DNS: $EXISTING_DNS"
+				echo "[!] This may cause error 1003 when creating the CNAME route."
+				echo "[!] Recommendation: remove the existing DNS record (A/CNAME) in the Cloudflare dashboard before continuing."
+				read -p "Continue anyway? (y/N) " -n 1 -r || true
 				echo
-				if [[ ! "$REPLY" =~ ^[Ss]$ ]]; then
-					die "Operação cancelada pelo usuário. Remova o registro DNS e tente novamente."
+				if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+					die "Operation cancelled by user. Remove the DNS record and try again."
 				fi
 			fi
 		fi
 
-		# 5.2) Criar/atualizar DNS (CNAME p/ cfargotunnel) - com fail-fast
-		echo "[+] criando/atualizando DNS para ${TUNNEL_HOSTNAME}"
+		# 5.2) Create/update DNS (CNAME to cfargotunnel) — with fail-fast
+		echo "[+] creating/updating DNS for ${TUNNEL_HOSTNAME}"
 		local DNS_OUTPUT
 		if ! DNS_OUTPUT="$($CLOUDFLARED_BIN tunnel route dns "$NAME" "$TUNNEL_HOSTNAME" 2>&1)"; then
-			echo "[!] erro do cloudflared: $DNS_OUTPUT"
-			die "falha ao criar DNS para ${TUNNEL_HOSTNAME}. Verifique: (1) token API configurado? (2) zona está na conta? (3) registro já existe?"
+			echo "[!] cloudflared error: $DNS_OUTPUT"
+			die "failed to create DNS for ${TUNNEL_HOSTNAME}. Check: (1) API token configured? (2) zone in the account? (3) record already exists?"
 		fi
 		echo "$DNS_OUTPUT"
 
-		# 5.3) Validar que DNS foi criado corretamente (aguarda até 30s pela propagação)
-		echo "[+] verificando DNS para ${TUNNEL_HOSTNAME}..."
-		echo "[!] aguarde até 30s pela propagação (Ctrl+C para pular)..."
+		# 5.3) Validate DNS was created correctly (waits up to 30s for propagation)
+		echo "[+] verifying DNS for ${TUNNEL_HOSTNAME}..."
+		echo "[!] waiting up to 30s for propagation (Ctrl+C to skip)..."
 		local DNS_RESULT=""
 		local WAITED=0
 		while [[ -z "$DNS_RESULT" && $WAITED -lt 30 ]]; do
 			sleep 5
 			DNS_RESULT="$(resolve_hostname "$TUNNEL_HOSTNAME" | head -1 || echo "")"
 			WAITED=$((WAITED + 5))
-			echo "    [+] tentativa ${WAITED}/30: ${DNS_RESULT:-"nada ainda..."}"
+			echo "    [+] attempt ${WAITED}/30: ${DNS_RESULT:-"nothing yet..."}"
 		done
 
 		if [[ -z "$DNS_RESULT" ]]; then
-			echo "[!] DNS ainda não resolve após 30s"
-			echo "[!] O registro CNAME pode ter sido criado no Cloudflare, mas a propagação leva tempo."
-			echo "[!] Você pode verificar no painel: https://dash.cloudflare.com/"
-			read -p "Continuar mesmo assim? (s/N) " -n 1 -r || true
+			echo "[!] DNS still not resolving after 30s"
+			echo "[!] The CNAME record may have been created in Cloudflare, but propagation takes time."
+			echo "[!] You can check the dashboard: https://dash.cloudflare.com/"
+			read -p "Continue anyway? (y/N) " -n 1 -r || true
 			echo
-			if [[ ! "$REPLY" =~ ^[Ss]$ ]]; then
-				die "Operação cancelada."
+			if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+				die "Operation cancelled."
 			fi
 		elif ! has_cname_lookup; then
-			echo "[✓] DNS resolve: $DNS_RESULT (verificação de CNAME indisponível sem dig/host)"
+			echo "[✓] DNS resolves: $DNS_RESULT (CNAME verification unavailable without dig/host)"
 		elif [[ "$DNS_RESULT" == *".cfargotunnel.com"* || "$DNS_RESULT" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 			echo "[✓] DNS OK: $DNS_RESULT"
 		else
-			echo "[!] aviso: DNS resultado inesperado: $DNS_RESULT"
-			echo "[!] esperado: <uuid>.cfargotunnel.com ou IP direto"
+			echo "[!] warning: unexpected DNS result: $DNS_RESULT"
+			echo "[!] expected: <uuid>.cfargotunnel.com or direct IP"
 		fi
 	fi
 
-	# 6) Subir systemd instance
-	echo "[+] habilitando e iniciando serviço: $UNIT"
+	# 6) Start systemd instance
+	echo "[+] enabling and starting service: $UNIT"
 	sudo systemctl daemon-reload
 	sudo systemctl enable --now "$UNIT"
 	sudo systemctl is-active --quiet "$UNIT" || {
 		sudo systemctl status "$UNIT" || true
-		die "serviço não ficou ativo"
+		die "service did not become active"
 	}
 
 	echo
-	echo "✅ pronto! Túnel '${NAME}' ativo para '${TUNNEL_HOSTNAME}' → ${SERVICE}"
+	echo "✅ ready! Tunnel '${NAME}' active for '${TUNNEL_HOSTNAME}' → ${SERVICE}"
 	echo "   - YAML: ${YAML}"
 	echo "   - Unit: ${UNIT}"
 	echo "   - Logs: sudo journalctl -fu ${UNIT}"
 	echo
-	# Informação específica para túneis TCP/UDP
+	# Specific info for TCP/UDP tunnels
 	if [[ "$TYPE" == "tcp" || "$TYPE" == "udp" ]]; then
-		echo "⚠️  IMPORTANTE: Para túneis TCP/UDP, conecte-se localmente:"
-		echo "      Na máquina cliente, execute:"
-		echo "      cloudflared access tcp --hostname ${TUNNEL_HOSTNAME} --url localhost:<porta_local>"
-		echo "      Então conecte seu aplicativo em localhost:<porta_local>"
+		echo "⚠️  IMPORTANT: For TCP/UDP tunnels, connect locally:"
+		echo "      On the client machine, run:"
+		echo "      cloudflared access tcp --hostname ${TUNNEL_HOSTNAME} --url localhost:<local_port>"
+		echo "      Then connect your application to localhost:<local_port>"
 	fi
-	echo "Dica: se for app protegido, crie a Access Policy p/ ${TUNNEL_HOSTNAME} no Zero Trust (ou automatize via API com CF_API_TOKEN/CF_ACCOUNT_ID)."
+	echo "Tip: for protected apps, create an Access Policy for ${TUNNEL_HOSTNAME} in Zero Trust (or automate via API with CF_API_TOKEN/CF_ACCOUNT_ID)."
 }
 
 op_remove() {
 	need cloudflared
 	ensure_template
-	[[ -n "${NAME:-}" ]] || die "--name é obrigatório"
+	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
 
 	if [[ $EUID -ne 0 ]]; then
-		sudo -v || die "precisa de permissão sudo"
+		sudo -v || die "needs sudo permission"
 	fi
 
 	local UNIT
@@ -315,47 +315,47 @@ op_remove() {
 	local YAML
 	YAML="$(yaml_path_for "$NAME")"
 
-	echo "[+] parando e desabilitando ${UNIT}"
+	echo "[+] stopping and disabling ${UNIT}"
 	sudo systemctl disable --now "$UNIT" || true
 
-	# localizar UUID a partir do YAML (se existir)
+	# locate UUID from YAML (if it exists)
 	local UUID=""
 	if [[ -f "$YAML" ]]; then
 		UUID="$(grep -E '^tunnel:' "$YAML" | awk '{print $2}')"
 	fi
 
-	echo "[+] removendo túnel '${NAME}' (se existir)"
+	echo "[+] removing tunnel '${NAME}' (if it exists)"
 	$CLOUDFLARED_BIN tunnel delete "$NAME" >/dev/null 2>&1 || true
 
-	echo "[+] limpando arquivos locais"
+	echo "[+] cleaning up local files"
 	rm -f "$YAML"
 	[[ -n "$UUID" ]] && rm -f "$BASE_DIR/${UUID}.json"
 
-	echo "✅ removido: ${NAME}"
+	echo "✅ removed: ${NAME}"
 }
 
 op_start() {
-	[[ -n "${NAME:-}" ]] || die "--name é obrigatório"
+	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
-	if [[ $EUID -ne 0 ]]; then sudo -v || die "precisa de permissão sudo"; fi
+	if [[ $EUID -ne 0 ]]; then sudo -v || die "needs sudo permission"; fi
 	sudo systemctl enable --now "$(instance_unit "$NAME")"
 }
 op_stop() {
-	[[ -n "${NAME:-}" ]] || die "--name é obrigatório"
+	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
-	if [[ $EUID -ne 0 ]]; then sudo -v || die "precisa de permissão sudo"; fi
+	if [[ $EUID -ne 0 ]]; then sudo -v || die "needs sudo permission"; fi
 	sudo systemctl disable --now "$(instance_unit "$NAME")" || true
 }
 op_status() {
-	[[ -n "${NAME:-}" ]] || die "--name é obrigatório"
+	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
-	if [[ $EUID -ne 0 ]]; then sudo -v || die "precisa de permissão sudo"; fi
+	if [[ $EUID -ne 0 ]]; then sudo -v || die "needs sudo permission"; fi
 	systemctl status "$(instance_unit "$NAME")"
 }
 op_logs() {
-	[[ -n "${NAME:-}" ]] || die "--name é obrigatório"
+	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
-	if [[ $EUID -ne 0 ]]; then sudo -v || die "precisa de permissão sudo"; fi
+	if [[ $EUID -ne 0 ]]; then sudo -v || die "needs sudo permission"; fi
 	sudo journalctl -fu "$(instance_unit "$NAME")"
 }
 
@@ -382,7 +382,7 @@ op_list() {
 	done <<<"$arr"
 }
 
-# ===== Parser de argumentos ===============================================
+# ===== Argument parser =====================================================
 cmd="${1:-}"
 shift || true
 NAME=""
@@ -420,7 +420,7 @@ add)
 			exit 0
 			;;
 		*)
-			echo "flag desconhecida: $1"
+			echo "unknown flag: $1"
 			print_usage
 			exit 1
 			;;
@@ -440,7 +440,7 @@ remove)
 			exit 0
 			;;
 		*)
-			echo "flag desconhecida: $1"
+			echo "unknown flag: $1"
 			print_usage
 			exit 1
 			;;
@@ -511,7 +511,7 @@ logs)
 list) op_list ;;
 -h | --help | "") print_usage ;;
 *)
-	echo "comando desconhecido: $cmd"
+	echo "unknown command: $cmd"
 	print_usage
 	exit 1
 	;;

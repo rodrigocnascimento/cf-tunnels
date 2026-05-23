@@ -61,7 +61,7 @@ die() {
 }
 
 need() {
-	command -v "$1" >/dev/null 2>&1 || die "comando obrigatório não encontrado: $1"
+	command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
 # =============================================================================
@@ -127,16 +127,16 @@ HELP
 # =============================================================================
 
 check_permissions() {
-	log_info "Verificando permissões..."
+	log_info "Checking permissions..."
 
 	if [[ $EUID -eq 0 ]]; then
-		log_warning "Executando como root. Isso pode não ser necessário para a maioria das operações."
+		log_warning "Running as root. This may not be necessary for most operations."
 	fi
 
 	# Check if we can create systemd service (needs sudo for /etc/systemd)
 	if [[ ! -w /etc/systemd/system ]] && [[ $EUID -ne 0 ]]; then
-		log_warning "Sem permissão para criar serviços systemd."
-		log_warning "Você precisará executar com sudo para criar o template systemd."
+		log_warning "No permission to create systemd services."
+		log_warning "You will need to run with sudo to create the systemd template."
 	fi
 }
 
@@ -146,18 +146,18 @@ check_permissions() {
 
 install_cloudflared() {
 	if [[ "$SKIP_CLOUDFLARED" == true ]]; then
-		log_info "Pulando instalação do cloudflared (--skip-cloudflared)"
+		log_info "Skipping cloudflared installation (--skip-cloudflared)"
 		return 0
 	fi
 
 	if command -v cloudflared >/dev/null 2>&1; then
 		local version
 		version=$(cloudflared --version 2>/dev/null | head -1 || echo "unknown")
-		log_success "cloudflared já instalado: $version"
+		log_success "cloudflared already installed: $version"
 		return 0
 	fi
 
-	log_info "Instalando cloudflared..."
+	log_info "Installing cloudflared..."
 
 	local arch
 	arch=$(uname -m)
@@ -170,7 +170,7 @@ install_cloudflared() {
 		arch="arm64"
 		;;
 	*)
-		die "Arquitetura não suportada: $arch"
+		die "Unsupported architecture: $arch"
 		;;
 	esac
 
@@ -181,7 +181,7 @@ install_cloudflared() {
 	local final_bin="$bin_dir/cloudflared"
 	local system_bin="/usr/local/bin/cloudflared"
 
-	log_info "Baixando cloudflared para linux-${arch}..."
+	log_info "Downloading cloudflared for linux-${arch}..."
 
 	if command -v curl >/dev/null 2>&1; then
 		mkdir -p "$bin_dir"
@@ -189,17 +189,17 @@ install_cloudflared() {
 		while [ $attempt -lt 5 ]; do
 			attempt=$((attempt + 1))
 			curl -fSL --http1.1 --retry 3 --retry-delay 10 "$download_url" -o "$final_bin" && break
-			log_warning "Tentativa $attempt/5 falhou. Tentando novamente em 10s..."
+			log_warning "Attempt $attempt/5 failed. Retrying in 10s..."
 			sleep 10
 		done
 		if [ $attempt -ge 5 ] && [ ! -f "$final_bin" ]; then
-			die "Falha ao baixar cloudflared após 5 tentativas"
+			die "Failed to download cloudflared after 5 attempts"
 		fi
 	elif command -v wget >/dev/null 2>&1; then
 		mkdir -p "$bin_dir"
-		wget -q "$download_url" -O "$final_bin" || die "Falha ao baixar cloudflared"
+		wget -q "$download_url" -O "$final_bin" || die "Failed to download cloudflared"
 	else
-		die "Nem curl nem wget estão disponíveis"
+		die "Neither curl nor wget is available"
 	fi
 
 	chmod +x "$final_bin"
@@ -208,18 +208,18 @@ install_cloudflared() {
 	if [[ -w /usr/local/bin ]] || [[ $EUID -eq 0 ]]; then
 		sudo mv "$final_bin" "$system_bin" || mv "$final_bin" "$system_bin"
 		sudo chmod +x "$system_bin"
-		log_success "cloudflared instalado em $system_bin"
+		log_success "cloudflared installed at $system_bin"
 	else
-		log_success "cloudflared instalado em $final_bin"
-		log_warning "Adicione $bin_dir ao seu PATH se ainda não estiver"
+		log_success "cloudflared installed at $final_bin"
+		log_warning "Add $bin_dir to your PATH if not already present"
 	fi
 
 	# Ensure ~/.local/bin is in PATH for verification
 	export PATH="$HOME/.local/bin:$PATH"
 
 	# Verify installation
-	cloudflared --version | head -1 || die "Falha ao verificar instalação"
-	log_success "cloudflared instalado com sucesso!"
+	cloudflared --version | head -1 || die "Failed to verify installation"
+	log_success "cloudflared installed successfully!"
 }
 
 # =============================================================================
@@ -228,25 +228,25 @@ install_cloudflared() {
 
 authenticate_cloudflared() {
 	if [[ "$SKIP_AUTH" == true ]]; then
-		log_info "Pulando autenticação (--skip-auth)"
+		log_info "Skipping authentication (--skip-auth)"
 		return 0
 	fi
 
 	if [[ -f "$CLOUDFLARED_DIR/cert.pem" ]]; then
-		log_success "Cloudflare já autenticado (cert.pem encontrado)"
+		log_success "Cloudflare already authenticated (cert.pem found)"
 		return 0
 	fi
 
-	log_info "Iniciando autenticação com Cloudflare..."
-	log_info "Um navegador será aberto para você fazer login."
-	log_info "Após o login, esta janela will mostrar a confirmação."
+	log_info "Starting Cloudflare authentication..."
+	log_info "A browser will open for you to log in."
+	log_info "After logging in, this window will show the confirmation."
 	echo
 
 	if command -v cloudflared >/dev/null 2>&1; then
-		cloudflared tunnel login || die "Falha na autenticação. Por favor, tente novamente."
-		log_success "Autenticação concluída!"
+		cloudflared tunnel login || die "Authentication failed. Please try again."
+		log_success "Authentication complete!"
 	else
-		die "cloudflared não está instalado. Execute ./install.sh primeiro ou use --skip-cloudflared"
+		die "cloudflared is not installed. Run ./install.sh first or use --skip-cloudflared"
 	fi
 }
 
@@ -255,10 +255,10 @@ authenticate_cloudflared() {
 # =============================================================================
 
 create_systemd_template() {
-	log_info "Verificando template systemd..."
+	log_info "Checking systemd template..."
 
 	if [[ -f "$SYSTEMD_TEMPLATE" ]] && [[ "$FORCE" == false ]]; then
-		log_success "Template systemd já existe: $SYSTEMD_TEMPLATE"
+		log_success "Systemd template already exists: $SYSTEMD_TEMPLATE"
 		return 0
 	fi
 
@@ -267,11 +267,11 @@ create_systemd_template() {
 	local user_home
 	user_home="$(getent passwd "$run_user" | cut -d: -f6 2>/dev/null || echo "$HOME")"
 
-	log_info "Criando template systemd em $SYSTEMD_TEMPLATE..."
+	log_info "Creating systemd template at $SYSTEMD_TEMPLATE..."
 
 	if [[ $EUID -ne 0 ]]; then
-		log_warning "Criando template systemd requer permissões sudo..."
-		sudo tee "$SYSTEMD_TEMPLATE" >/dev/null <<TEMPLATE || die "Falha ao criar template systemd"
+		log_warning "Creating systemd template requires sudo permissions..."
+		sudo tee "$SYSTEMD_TEMPLATE" >/dev/null <<TEMPLATE || die "Failed to create systemd template"
 [Unit]
 Description=Cloudflare Tunnel (%i)
 Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/
@@ -290,10 +290,10 @@ StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
-# Reduzir verbosidade de logs
+# Reduce logging verbosity
 Environment="CLOUDFLARED_LOGLEVEL=info"
 
-# Segurança: sandbox via systemd
+# Security: systemd sandbox
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictAddressFamilies=AF_INET AF_INET6
@@ -305,7 +305,7 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 TEMPLATE
 	else
-		tee "$SYSTEMD_TEMPLATE" >/dev/null <<TEMPLATE || die "Falha ao criar template systemd"
+		tee "$SYSTEMD_TEMPLATE" >/dev/null <<TEMPLATE || die "Failed to create systemd template"
 [Unit]
 Description=Cloudflare Tunnel (%i)
 Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/
@@ -324,10 +324,10 @@ StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
-# Reduzir verbosidade de logs
+# Reduce logging verbosity
 Environment="CLOUDFLARED_LOGLEVEL=info"
 
-# Segurança: sandbox via systemd
+# Security: systemd sandbox
 NoNewPrivileges=true
 PrivateTmp=true
 RestrictAddressFamilies=AF_INET AF_INET6
@@ -341,7 +341,7 @@ TEMPLATE
 	fi
 
 	sudo systemctl daemon-reload
-	log_success "Template systemd criado: $SYSTEMD_TEMPLATE"
+	log_success "Systemd template created: $SYSTEMD_TEMPLATE"
 }
 
 # =============================================================================
@@ -349,13 +349,13 @@ TEMPLATE
 # =============================================================================
 
 setup_cloudflared_dir() {
-	log_info "Verificando diretório ~/.cloudflared..."
+	log_info "Checking ~/.cloudflared directory..."
 
 	if [[ ! -d "$CLOUDFLARED_DIR" ]]; then
 		mkdir -p "$CLOUDFLARED_DIR"
-		log_success "Diretório criado: $CLOUDFLARED_DIR"
+		log_success "Directory created: $CLOUDFLARED_DIR"
 	else
-		log_success "Diretório já existe: $CLOUDFLARED_DIR"
+		log_success "Directory already exists: $CLOUDFLARED_DIR"
 	fi
 }
 
@@ -364,14 +364,14 @@ setup_cloudflared_dir() {
 # =============================================================================
 
 make_executable() {
-	log_info "Configurando run.sh..."
+	log_info "Configuring run.sh..."
 
 	if [[ ! -f "$SCRIPT_DIR/run.sh" ]]; then
-		die "run.sh não encontrado em $SCRIPT_DIR"
+		die "run.sh not found in $SCRIPT_DIR"
 	fi
 
 	chmod +x "$SCRIPT_DIR/run.sh"
-	log_success "run.sh é agora executável"
+	log_success "run.sh is now executable"
 }
 
 # =============================================================================
@@ -380,32 +380,32 @@ make_executable() {
 
 create_symlink() {
 	if [[ "$SKIP_SYMLINK" == true ]]; then
-		log_info "Pulando criação de symlink (--skip-symlink)"
+		log_info "Skipping symlink creation (--skip-symlink)"
 		return 0
 	fi
 
 	local symlink_path="/usr/local/bin/cftunnel"
 
-	log_info "Criando symlink em $symlink_path..."
+	log_info "Creating symlink at $symlink_path..."
 
 	# Check if already exists
 	if [[ -L "$symlink_path" ]] || [[ -f "$symlink_path" ]]; then
 		if [[ "$FORCE" == true ]]; then
 			sudo rm -f "$symlink_path"
 		else
-			log_success "Symlink já existe: $symlink_path"
+			log_success "Symlink already exists: $symlink_path"
 			return 0
 		fi
 	fi
 
 	# Create symlink
 	if [[ $EUID -eq 0 ]]; then
-		ln -sf "$SCRIPT_DIR/run.sh" "$symlink_path" || die "Falha ao criar symlink"
+		ln -sf "$SCRIPT_DIR/run.sh" "$symlink_path" || die "Failed to create symlink"
 	else
-		sudo ln -sf "$SCRIPT_DIR/run.sh" "$symlink_path" || die "Falha ao criar symlink (precisa de sudo)"
+		sudo ln -sf "$SCRIPT_DIR/run.sh" "$symlink_path" || die "Failed to create symlink (needs sudo)"
 	fi
 
-	log_success "Symlink criado: $symlink_path -> $SCRIPT_DIR/run.sh"
+	log_success "Symlink created: $symlink_path -> $SCRIPT_DIR/run.sh"
 }
 
 # =============================================================================
@@ -413,7 +413,7 @@ create_symlink() {
 # =============================================================================
 
 reload_systemd() {
-	log_info "Recarregando systemd..."
+	log_info "Reloading systemd..."
 
 	if [[ $EUID -eq 0 ]]; then
 		systemctl daemon-reload
@@ -421,7 +421,7 @@ reload_systemd() {
 		sudo systemctl daemon-reload
 	fi
 
-	log_success "systemd recarregado"
+	log_success "systemd reloaded"
 }
 
 # =============================================================================
@@ -431,35 +431,35 @@ reload_systemd() {
 show_summary() {
 	echo
 	echo "════════════════════════════════════════════════════════════════"
-	echo -e "                    ${GREEN}INSTALAÇÃO CONCLUÍDA!${NC}"
+	echo -e "                    ${GREEN}INSTALLATION COMPLETE!${NC}"
 	echo "════════════════════════════════════════════════════════════════"
 	echo
-	echo "Próximos passos:"
+	echo "Next steps:"
 	echo
-	echo "  1. Criar seu primeiro túnel:"
+	echo "  1. Create your first tunnel:"
 	echo
 	if [[ -L "/usr/local/bin/cftunnel" ]]; then
-		echo "     cftunnel add --hostname api.seudominio.com --type http --service http://localhost:3000"
+		echo "     cftunnel add --hostname api.yourdomain.com --type http --service http://localhost:3000"
 	else
 		echo "     cd $SCRIPT_DIR"
-		echo "     ./run.sh add --hostname api.seudominio.com --type http --service http://localhost:3000"
+		echo "     ./run.sh add --hostname api.yourdomain.com --type http --service http://localhost:3000"
 	fi
 	echo
-	echo "  2. Para túneis TCP/UDP (Redis, PostgreSQL, etc.):"
+	echo "  2. For TCP/UDP tunnels (Redis, PostgreSQL, etc.):"
 	echo
-	echo "     # No servidor:"
-	echo "     cftunnel add --hostname redis.seudominio.com --type tcp --service tcp://localhost:6379"
+	echo "     # On the server:"
+	echo "     cftunnel add --hostname redis.yourdomain.com --type tcp --service tcp://localhost:6379"
 	echo
-	echo "     # No cliente (para acessar):"
-	echo "     cloudflared access tcp --hostname redis.seudominio.com --url localhost:6379"
+	echo "     # On the client (to access):"
+	echo "     cloudflared access tcp --hostname redis.yourdomain.com --url localhost:6379"
 	echo
-	echo "  3. Ver todos os túneis:"
+	echo "  3. List all tunnels:"
 	echo
 	echo "     cftunnel list"
 	echo
 	echo "════════════════════════════════════════════════════════════════"
 	echo
-	echo -e "${BLUE}Documentação:${NC} $SCRIPT_DIR/README.md"
+	echo -e "${BLUE}Documentation:${NC} $SCRIPT_DIR/README.md"
 	echo -e "${BLUE}Changelog:${NC} $SCRIPT_DIR/CHANGELOG.md"
 	echo
 }
@@ -471,7 +471,7 @@ show_summary() {
 main() {
 	echo
 	echo "════════════════════════════════════════════════════════════════"
-	echo -e "       ${BLUE}Cloudflare Tunnel Manager - Instalador${NC}"
+	echo -e "       ${BLUE}Cloudflare Tunnel Manager - Installer${NC}"
 	echo "════════════════════════════════════════════════════════════════"
 	echo
 
@@ -479,7 +479,7 @@ main() {
 	check_permissions
 
 	echo
-	echo "Opções seleccionadas:"
+	echo "Selected options:"
 	echo "  Skip cloudflared: $SKIP_CLOUDFLARED"
 	echo "  Skip auth:        $SKIP_AUTH"
 	echo "  Skip symlink:     $SKIP_SYMLINK"

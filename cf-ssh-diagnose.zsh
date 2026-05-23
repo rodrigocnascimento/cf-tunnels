@@ -1,31 +1,31 @@
 #!/usr/bin/env zsh
 # cf-ssh-diagnose.zsh
 # -----------------------------------------------------------------------------
-# Diagnóstico completo de Cloudflare Tunnel + SSH (sshd), compatível com:
-#  - Servidores COM systemd (systemctl/journalctl)
-#  - Servidores SEM systemd (cloudflared rodando via shell/tmux/screen/rc.local)
+# Complete Cloudflare Tunnel + SSH (sshd) diagnostic, compatible with:
+#  - Servers WITH systemd (systemctl/journalctl)
+#  - Servers WITHOUT systemd (cloudflared running via shell/tmux/screen/rc.local)
 #
-# O script verifica:
-#  • Presença de binários essenciais;
-#  • Se "cloudflared" está em execução (via systemd OU via pgrep/ps);
-#  • Caminho do config.yml do cloudflared (por systemd, pelos argumentos do processo ou locais padrão);
-#  • Ingress (hostname → service), validando porta/“ssh://localhost:<porta>”;
-#  • Estado do sshd (processo, porta em escuta via ss, config efetiva via "sshd -T");
-#  • DNS do hostname (CNAME → cfargotunnel.com quando aplicável);
-#  • Informações do túnel (cloudflared tunnel info/list/route dns);
-#  • (Opcional) Dump extenso para /tmp/cf_ssh_diag_<timestamp>.log com dados sensíveis REDACTED.
+# Checks performed:
+#  • Presence of essential binaries;
+#  • Whether "cloudflared" is running (via systemd OR via pgrep/ps);
+#  • cloudflared config.yml path (via systemd, process arguments, or default locations);
+#  • Ingress (hostname → service), validating port/"ssh://localhost:<port>";
+#  • sshd state (process, listening port via ss, effective config via "sshd -T");
+#  • Hostname DNS (CNAME → cfargotunnel.com when applicable);
+#  • Tunnel info (cloudflared tunnel info/list/route dns);
+#  • (Optional) Extensive dump to /tmp/cf_ssh_diag_<timestamp>.log with sensitive data REDACTED.
 #
-# Uso:
-#   zsh cf-ssh-diagnose.zsh --host <FQDN> --expected-port <PORTA> --tunnel <NOME|ID> [--dump] [--verbose]
+# Usage:
+#   zsh cf-ssh-diagnose.zsh --host <FQDN> --expected-port <PORT> --tunnel <NAME|ID> [--dump] [--verbose]
 #
-# Parâmetros:
-#   --host            Hostname público (ex.: ssh.testes.lat)
-#   --expected-port   Porta do sshd (ex.: 2222). Se omitir, tenta inferir por "sshd -T" e senão usa 22.
-#   --tunnel          Nome ou ID do túnel para comandos "cloudflared tunnel info/route dns"
-#   --dump            Gera /tmp/cf_ssh_diag_<timestamp>.log com saídas detalhadas (redact credenciais/tokens)
-#   --verbose         Mais verbosidade no stdout
+# Parameters:
+#   --host            Public hostname (e.g.: ssh.example.com)
+#   --expected-port   sshd port (e.g.: 2222). If omitted, tries to infer via "sshd -T", else uses 22.
+#   --tunnel          Tunnel name or ID for "cloudflared tunnel info/route dns" commands
+#   --dump            Generates /tmp/cf_ssh_diag_<timestamp>.log with detailed output (redacts credentials/tokens)
+#   --verbose         More verbosity on stdout
 #
-# Saída de status: 0 (ok), 2 (falhas críticas)
+# Exit status: 0 (ok), 2 (critical failures)
 # -----------------------------------------------------------------------------
 
 set -o errexit
@@ -61,7 +61,7 @@ while (( $# )); do
     --dump)            DO_DUMP=1; shift;;
     --verbose)         VERBOSE=1; shift;;
     -h|--help) sed -n '1,140p' "$0"; exit 0;;
-    *) warn "Argumento desconhecido: $1"; shift;;
+    *) warn "Unknown argument: $1"; shift;;
   esac
 done
 
@@ -91,7 +91,7 @@ dump() {
 need() {
   local b="$1"
   if ! command -v "$b" >/dev/null 2>&1; then
-    fail "Binário requerido não encontrado: $b"
+    fail "Required binary not found: $b"
     exit 1
   fi
 }
@@ -100,7 +100,7 @@ has() { command -v "$1" >/dev/null 2>&1; }
 SUDO=""
 if [[ $EUID -ne 0 && -x /usr/bin/sudo ]]; then SUDO="sudo"; fi
 
-# ---------- requisitos ----------
+# ---------- requirements ----------
 need zsh
 need grep
 need awk
@@ -108,13 +108,13 @@ need sed
 need ssh
 need ss
 need cloudflared
-has sshd || [[ -x /usr/sbin/sshd ]] || { fail "sshd não encontrado (nem /usr/sbin/sshd)."; exit 1; }
+has sshd || [[ -x /usr/sbin/sshd ]] || { fail "sshd not found (nor /usr/sbin/sshd)."; exit 1; }
 
 SYS_HAS_SYSTEMD=0
 if has systemctl && has journalctl; then
   if systemctl >/dev/null 2>&1; then SYS_HAS_SYSTEMD=1; fi
 fi
-(( SYS_HAS_SYSTEMD )) && info "Mode: systemd detectado" || info "Mode: sem systemd (fallback pgrep/ps)"
+(( SYS_HAS_SYSTEMD )) && info "Mode: systemd detected" || info "Mode: no systemd (fallback pgrep/ps)"
 
 DNS_TOOL=""
 if has dig; then DNS_TOOL="dig"
@@ -124,29 +124,29 @@ fi
 
 dump "cloudflared --version" cloudflared --version || true
 
-# ---------- sshd: detectar porta ----------
+# ---------- sshd: detect port ----------
 detected_ports=()
 if has sshd; then
   ssht="$($SUDO sshd -T 2>/dev/null || true)"
   if [[ -n "$ssht" ]]; then
     detected_ports=("${(@f)$(print -r -- "$ssht" | awk '/^port /{print $2}')}")
-    dump "sshd -T (resumo)" /bin/sh -c "$SUDO sshd -T | egrep '^(port|authorizedkeysfile|pubkeyauthentication|trustedusercakeys|passwordauthentication|strictmodes) '"
+    dump "sshd -T (summary)" /bin/sh -c "$SUDO sshd -T | egrep '^(port|authorizedkeysfile|pubkeyauthentication|trustedusercakeys|passwordauthentication|strictmodes) '"
   fi
 fi
 
 if [[ -z "$EXPECTED_PORT" ]]; then
   if (( ${#detected_ports[@]} )); then
     EXPECTED_PORT="${detected_ports[1]}"
-    info "Porta esperada (inferida): $EXPECTED_PORT"
+    info "Expected port (inferred): $EXPECTED_PORT"
   else
     EXPECTED_PORT="22"
-    warn "Não consegui inferir porta do sshd; assumindo 22. Use --expected-port para definir explicitamente."
+    warn "Could not infer sshd port; assuming 22. Use --expected-port to set explicitly."
   fi
 else
-  info "Porta esperada (forçada): $EXPECTED_PORT"
+  info "Expected port (forced): $EXPECTED_PORT"
 fi
 
-# ---------- cloudflared: detectar execução e config ----------
+# ---------- cloudflared: detect execution and config ----------
 CF_RUNNING=0
 CF_CFG=""
 CF_PIDS=()
@@ -155,9 +155,9 @@ CF_PS_LINES=()
 if (( SYS_HAS_SYSTEMD )); then
   if $SUDO systemctl is-active --quiet cloudflared; then
     CF_RUNNING=1
-    ok "cloudflared EM EXECUÇÃO (systemd)."
+    ok "cloudflared RUNNING (systemd)."
   else
-    warn "cloudflared NÃO está ativo no systemd."
+    warn "cloudflared NOT active on systemd."
   fi
   dump "systemctl status cloudflared" $SUDO systemctl status cloudflared || true
   svc="$($SUDO systemctl cat cloudflared 2>/dev/null || true)"
@@ -166,12 +166,12 @@ if (( SYS_HAS_SYSTEMD )); then
     line=$(print -r -- "$svc" | grep -E 'ExecStart=.*cloudflared' | head -n1 || true)
     if [[ "$line" == *"--config"* ]]; then
       CF_CFG=$(print -r -- "$line" | sed -n 's/.*--config[= ]\([^[:space:]]\+\).*/\1/p' | head -n1)
-      [[ -r "$CF_CFG" ]] && ok "Config (systemd): $CF_CFG" || warn "Config via systemd extraída mas não legível: $CF_CFG"
+      [[ -r "$CF_CFG" ]] && ok "Config (systemd): $CF_CFG" || warn "Config extracted from systemd but not readable: $CF_CFG"
     fi
   fi
 fi
 
-# Fallback: pgrep/ps (sem systemd ou systemd inativo)
+# Fallback: pgrep/ps (no systemd or systemd inactive)
 if (( ! CF_RUNNING )); then
   if has pgrep; then
     CF_PIDS=("${(@f)$(pgrep -f -x '.*cloudflared.*' || true)}")
@@ -180,33 +180,33 @@ if (( ! CF_RUNNING )); then
   fi
   if (( ${#CF_PIDS[@]} )); then
     CF_RUNNING=1
-    ok "cloudflared EM EXECUÇÃO (processo): PIDs ${CF_PIDS[*]}"
+    ok "cloudflared RUNNING (process): PIDs ${CF_PIDS[*]}"
     CF_PS_LINES=("${(@f)$(ps -fp ${CF_PIDS[1]} 2>/dev/null || true)}")
     dump "ps -fp ${CF_PIDS[1]}" ps -fp ${CF_PIDS[1]} || true
-    # tentar extrair --config do cmdline
+    # try to extract --config from cmdline
     CF_CMD=$(ps -o args= -p ${CF_PIDS[1]} 2>/dev/null || true)
     if [[ "$CF_CMD" == *"--config"* ]]; then
       CF_CFG=$(print -r -- "$CF_CMD" | sed -n 's/.*--config[= ]\([^[:space:]]\+\).*/\1/p' | head -n1)
-      [[ -r "$CF_CFG" ]] && ok "Config (processo): $CF_CFG" || warn "Config do processo extraída mas não legível: $CF_CFG"
+      [[ -r "$CF_CFG" ]] && ok "Config (process): $CF_CFG" || warn "Config extracted from process but not readable: $CF_CFG"
     fi
   else
-    fail "cloudflared NÃO está em execução."
+    fail "cloudflared is NOT running."
   fi
 fi
 
-# Se ainda não sabemos o config, tentar locais padrão
+# If we still don't know the config, try default locations
 if [[ -z "$CF_CFG" ]]; then
   for f in /etc/cloudflared/config.yml /usr/local/etc/cloudflared/config.yml ~/.cloudflared/config.yml; do
-    if [[ -r "$f" ]]; then CF_CFG="$f"; ok "Config (padrão): $CF_CFG"; break; fi
+    if [[ -r "$f" ]]; then CF_CFG="$f"; ok "Config (default): $CF_CFG"; break; fi
   done
 fi
 if [[ -n "$CF_CFG" ]]; then
-  dump "Conteúdo de $CF_CFG (redact)" /bin/sh -c "cat '$CF_CFG'"
+  dump "Contents of $CF_CFG (redact)" /bin/sh -c "cat '$CF_CFG'"
 else
-  warn "Não consegui localizar um config.yml legível do cloudflared."
+  warn "Could not locate a readable cloudflared config.yml."
 fi
 
-# ---------- ingress: extrair hostname → service ----------
+# ---------- ingress: extract hostname → service ----------
 typeset -A INGRESS
 if [[ -n "$CF_CFG" ]]; then
   local_hostname=""
@@ -228,40 +228,38 @@ if [[ -n "$CF_CFG" ]]; then
   if (( ${#INGRESS[@]} )); then
     info "Ingress (hostname → service):"; for k v in "${(@kv)INGRESS}"; do say "  - $k  ->  $v"; done
   else
-    warn "Não consegui extrair pares hostname/service do ingress (YAML complexo?)."
+    warn "Could not extract hostname/service pairs from ingress (complex YAML?)."
   fi
 
-  # Se tiver yq, valida ingress oficialmente
+  # If yq is available, validate ingress officially
   if has yq; then
     dump "yq ingress parse" yq -r '.ingress[] | select(.hostname != null) | "\(.hostname) -> \(.service)"' "$CF_CFG"
   fi
 
-  # cloudflared possui "tunnel ingress validate" em versões recentes
+  # cloudflared has "tunnel ingress validate" in recent versions
   if cloudflared tunnel ingress --help >/dev/null 2>&1; then
-    info "Validando ingress via cloudflared (se suportado)..."
+    info "Validating ingress via cloudflared (if supported)..."
     dump "cloudflared tunnel ingress validate" cloudflared tunnel ingress validate --config "$CF_CFG" || true
   fi
 fi
 
-# ---------- sshd: processo e porta ----------
-# Processo
+# ---------- sshd: process and port ----------
 if pgrep -f -x '.*sshd.*' >/dev/null 2>&1 || ps -eo comm | grep -q '[s]shd'; then
-  ok "sshd está em execução."
+  ok "sshd is running."
 else
-  fail "sshd NÃO está em execução."
+  fail "sshd is NOT running."
 fi
-# Porta
 listen_line="$(ss -lntp 2>/dev/null | grep -E ":${EXPECTED_PORT}\b" || true)"
 dump "ss -lntp" ss -lntp
 if [[ -n "$listen_line" ]]; then
-  ok "sshd escutando na porta ${EXPECTED_PORT}."
+  ok "sshd listening on port ${EXPECTED_PORT}."
 else
-  fail "Porta ${EXPECTED_PORT} NÃO encontrada em escuta (ss)."
+  fail "Port ${EXPECTED_PORT} NOT found in listening state (ss)."
 fi
 
-# ---------- DNS do hostname ----------
+# ---------- Hostname DNS ----------
 if [[ -n "$HOSTNAME_ARG" ]]; then
-  info "DNS do hostname: $HOSTNAME_ARG"
+  info "Hostname DNS: $HOSTNAME_ARG"
   case "$DNS_TOOL" in
     dig)
       cname="$(dig +short CNAME "$HOSTNAME_ARG" 2>/dev/null | tr -d '\r')"
@@ -269,24 +267,24 @@ if [[ -n "$HOSTNAME_ARG" ]]; then
       dump "dig ANY $HOSTNAME_ARG" /bin/sh -c "dig +nocmd $HOSTNAME_ARG any +multiline +noall +answer"
       if [[ -n "$cname" ]]; then
         say "  CNAME: $cname"
-        if [[ "$cname" == *".cfargotunnel.com." ]]; then ok "CNAME aponta para cfargotunnel.com (esperado)."
-        else warn "CNAME não aponta para cfargotunnel.com"; fi
+        if [[ "$cname" == *".cfargotunnel.com." ]]; then ok "CNAME points to cfargotunnel.com (expected)."
+        else warn "CNAME does not point to cfargotunnel.com"; fi
       elif [[ -n "$arec" ]]; then
-        warn "Sem CNAME; há registro A: $arec (não é o padrão de Tunnel)."
+        warn "No CNAME; A record found: $arec (not the Tunnel standard)."
       else
-        warn "Sem CNAME/A visíveis."
+        warn "No CNAME/A records visible."
       fi
       ;;
     host)
       dump "host $HOSTNAME_ARG" host "$HOSTNAME_ARG"
-      host "$HOSTNAME_ARG" || warn "'host' não conseguiu resolver."
+      host "$HOSTNAME_ARG" || warn "'host' could not resolve."
       ;;
     getent)
       dump "getent ahosts $HOSTNAME_ARG" getent ahosts "$HOSTNAME_ARG"
-      getent ahosts "$HOSTNAME_ARG" || warn "'getent ahosts' falhou."
+      getent ahosts "$HOSTNAME_ARG" || warn "'getent ahosts' failed."
       ;;
     *)
-      warn "Sem dig/host/getent para checar DNS detalhado."
+      warn "No dig/host/getent to check DNS details."
       ;;
   esac
 fi
@@ -299,91 +297,87 @@ if [[ -n "$TUNNEL_ARG" ]]; then
   dump "cloudflared tunnel info $TUNNEL_ARG" cloudflared tunnel info "$TUNNEL_ARG" || true
   if [[ -n "$info_out" ]]; then
     conns=$(print -r -- "$info_out" | awk '/Connections:/ {print $2; exit}')
-    if [[ -n "$conns" && "$conns" != "0" ]]; then ok "Túnel com conexões ao edge: $conns"
-    else fail "Túnel sem conexões (Connections=0)."; fi
+    if [[ -n "$conns" && "$conns" != "0" ]]; then ok "Tunnel with edge connections: $conns"
+    else fail "Tunnel with no connections (Connections=0)."; fi
     CONNS_STR="$conns"
     if [[ -n "$HOSTNAME_ARG" ]]; then
       if print -r -- "$info_out" | grep -q -F "$HOSTNAME_ARG"; then
-        ok "Hostname $HOSTNAME_ARG está associado ao túnel."
+        ok "Hostname $HOSTNAME_ARG is associated with the tunnel."
       else
-        warn "Hostname $HOSTNAME_ARG não apareceu em 'tunnel info'. Verifique 'route dns'."
+        warn "Hostname $HOSTNAME_ARG did not appear in 'tunnel info'. Check 'route dns'."
       fi
     fi
   else
-    warn "Não foi possível obter 'tunnel info' (túnel errado? credenciais?)."
+    warn "Could not obtain 'tunnel info' (wrong tunnel? credentials?)."
   fi
 
-  # Rota DNS (ajuda a vincular o FQDN ao túnel certo)
+  # DNS route (helps link the FQDN to the correct tunnel)
   if [[ -n "$HOSTNAME_ARG" ]]; then
-    dump "cloudflared tunnel route dns (dry-run textual)" /bin/sh -c "echo 'Para associar: cloudflared tunnel route dns $TUNNEL_ARG $HOSTNAME_ARG'"
+    dump "cloudflared tunnel route dns (dry-run textual)" /bin/sh -c "echo 'To associate: cloudflared tunnel route dns $TUNNEL_ARG $HOSTNAME_ARG'"
   fi
 else
-  warn "Sem --tunnel; pulando checagens de 'tunnel info'."
+  warn "No --tunnel; skipping 'tunnel info' checks."
 fi
 
-# ---------- Conectividade local mínima com sshd ----------
-# Observação: isso NÃO testa Cloudflare/Access; apenas que a porta local aceita TCP.
+# ---------- Minimal local connectivity with sshd ----------
+# Note: this does NOT test Cloudflare/Access; only that the local port accepts TCP.
 if has nc; then
   if nc -z 127.0.0.1 "$EXPECTED_PORT" >/dev/null 2>&1; then
-    ok "Teste TCP local: 127.0.0.1:$EXPECTED_PORT acessível."
+    ok "Local TCP test: 127.0.0.1:$EXPECTED_PORT reachable."
   else
-    warn "Teste TCP local: 127.0.0.1:$EXPECTED_PORT inacessível."
+    warn "Local TCP test: 127.0.0.1:$EXPECTED_PORT unreachable."
   fi
 fi
 
-# ---------- Validação do ingress vs porta esperada ----------
+# ---------- Ingress validation vs expected port ----------
 if [[ -n "$HOSTNAME_ARG" && -n "${INGRESS[$HOSTNAME_ARG]:-}" ]]; then
   svc="${INGRESS[$HOSTNAME_ARG]}"
   if [[ "$svc" == ssh://localhost:${EXPECTED_PORT} ]]; then
-    ok "Ingress $HOSTNAME_ARG → $svc (porta condiz com sshd)."
+    ok "Ingress $HOSTNAME_ARG → $svc (port matches sshd)."
   else
     if [[ "$svc" == ssh://localhost:* ]]; then
-      warn "Ingress usa ssh://localhost mas porta difere: $svc (esperado :$EXPECTED_PORT)."
+      warn "Ingress uses ssh://localhost but port differs: $svc (expected :$EXPECTED_PORT)."
     elif [[ "$svc" == tcp://localhost:* ]]; then
-      warn "Ingress usa tcp://localhost; funciona, mas recomendo ssh:// para SSH."
+      warn "Ingress uses tcp://localhost; works, but ssh:// is recommended for SSH."
     else
-      fail "Ingress $HOSTNAME_ARG aponta para $svc (não é ssh://localhost:$EXPECTED_PORT)."
+      fail "Ingress $HOSTNAME_ARG points to $svc (not ssh://localhost:$EXPECTED_PORT)."
     fi
   fi
 elif [[ -n "$HOSTNAME_ARG" ]]; then
-  warn "Ingress: hostname $HOSTNAME_ARG não encontrado no $CF_CFG."
+  warn "Ingress: hostname $HOSTNAME_ARG not found in $CF_CFG."
 fi
 
-# ---------- Resumo ----------
+# ---------- Summary ----------
 say ""
-c "%F{cyan}==== RESUMO ====%f"; say ""
+c "%F{cyan}==== SUMMARY ====%f"; say ""
 CRIT=0
 
-(( CF_RUNNING )) && ok "cloudflared: em execução" || { fail "cloudflared: NÃO em execução"; CRIT=1; }
-# sshd
+(( CF_RUNNING )) && ok "cloudflared: running" || { fail "cloudflared: NOT running"; CRIT=1; }
 if pgrep -f -x '.*sshd.*' >/dev/null 2>&1 || ps -eo comm | grep -q '[s]shd'; then
-  ok "sshd: em execução"
+  ok "sshd: running"
 else
-  fail "sshd: NÃO em execução"; CRIT=1
+  fail "sshd: NOT running"; CRIT=1
 fi
-# porta
 if ss -lntp | grep -q -E ":${EXPECTED_PORT}\b"; then
-  ok "Porta sshd: $EXPECTED_PORT (escutando)"
+  ok "sshd port: $EXPECTED_PORT (listening)"
 else
-  fail "Porta sshd: $EXPECTED_PORT NÃO encontrada"; CRIT=1
+  fail "sshd port: $EXPECTED_PORT NOT found"; CRIT=1
 fi
-# conexões do túnel
 if [[ -n "$CONNS_STR" ]]; then
   if [[ "$CONNS_STR" == "0" ]]; then
-    fail "Túnel: Connections=0"; CRIT=1
+    fail "Tunnel: Connections=0"; CRIT=1
   else
-    ok "Túnel: Connections=$CONNS_STR"
+    ok "Tunnel: Connections=$CONNS_STR"
   fi
 fi
-# dns
 if [[ -n "$HOSTNAME_ARG" && -n "${cname:-}" ]]; then
   if [[ "$cname" == *".cfargotunnel.com." ]]; then
     ok "DNS: CNAME → cfargotunnel.com"
   else
-    warn "DNS: CNAME não padrão → $cname"
+    warn "DNS: non-standard CNAME → $cname"
   fi
 fi
 
 say ""
-if (( DO_DUMP )); then info "Dump salvo em $DUMP_FILE"; fi
-if (( CRIT )); then fail "Existem falhas críticas acima."; exit 2; else ok "Diagnóstico concluído."; exit 0; fi
+if (( DO_DUMP )); then info "Dump saved to $DUMP_FILE"; fi
+if (( CRIT )); then fail "There are critical failures above."; exit 2; else ok "Diagnostic complete."; exit 0; fi
