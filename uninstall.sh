@@ -238,6 +238,33 @@ remove_auth() {
 }
 
 # =============================================================================
+# Remove Prompt Hook
+# =============================================================================
+
+remove_prompt_hook() {
+	local marker_start="# >>> cftunnel installer <<<"
+	local marker_end="# <<< cftunnel installer <<<"
+
+	for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
+		if [[ ! -f "$rc_file" ]]; then
+			continue
+		fi
+
+		if grep -qF "$marker_start" "$rc_file" 2>/dev/null; then
+			log_info "Removing prompt hook from $rc_file..."
+			# Create a temp file without the block (markers + content between them)
+			awk -v start="$marker_start" -v end="$marker_end" '
+				BEGIN { in_block=0 }
+				$0 == start { in_block=1; next }
+				$0 == end   { in_block=0; next }
+				!in_block  { print }
+			' "$rc_file" >"${rc_file}.tmp" && mv "${rc_file}.tmp" "$rc_file"
+			log_success "Prompt hook removed from $rc_file"
+		fi
+	done
+}
+
+# =============================================================================
 # Remove Configurations
 # =============================================================================
 
@@ -286,6 +313,7 @@ main() {
 	# Removal steps
 	remove_symlink
 	remove_systemd_template
+	remove_prompt_hook
 
 	if [[ "$REMOVE_CLOUDFLARED" == true ]]; then
 		remove_cloudflared

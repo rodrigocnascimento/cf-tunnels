@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# tests/fixtures/mock_cloudflared
+# =============================================================================
+# Minimal mock of cloudflared for testing without Cloudflare API.
+# =============================================================================
+
+case "${1:-}" in
+	tunnel)
+		case "${2:-}" in
+			list)
+				# Return empty tunnel list
+				echo '[]'
+				;;
+			create)
+				# Simulate tunnel creation output (UUID)
+				echo "Mock tunnel created: ${4:-test}"
+				echo "ID: 12345678-1234-1234-1234-123456789012"
+				;;
+			delete)
+				echo "Mock tunnel deleted: ${4:-}"
+				;;
+			route)
+				if [[ "${3:-}" == "dns" ]]; then
+					echo "Mock DNS route created: ${4:-} -> ${5:-}"
+				fi
+				;;
+			ingress)
+				if [[ "${2:-}" == "validate" ]]; then
+					echo "Validating mock ingress..."
+				fi
+				;;
+			*)
+				echo "Mock: tunnel ${2:-}"
+				;;
+		esac
+		;;
+	--version)
+		echo "cloudflared version 2025.1.1 (mock)"
+		;;
+	*)
+		echo "Mock cloudflared: $*"
+		;;
+esac

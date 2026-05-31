@@ -409,6 +409,43 @@ create_symlink() {
 }
 
 # =============================================================================
+# Install Prompt Hook
+# =============================================================================
+
+install_prompt_hook() {
+	local hook_file="$SCRIPT_DIR/prompt-hook.sh"
+	if [[ ! -f "$hook_file" ]]; then
+		log_warning "prompt-hook.sh not found at $hook_file"
+		return 0
+	fi
+
+	local marker_start="# >>> cftunnel installer <<<"
+	local marker_end="# <<< cftunnel installer <<<"
+	local source_line="source \"$hook_file\""
+
+	for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
+		if [[ ! -f "$rc_file" ]]; then
+			continue
+		fi
+
+		# Skip if markers already present
+		if grep -qF "$marker_start" "$rc_file" 2>/dev/null; then
+			log_info "cftunnel prompt hook already in $rc_file"
+			continue
+		fi
+
+		log_info "Adding prompt hook to $rc_file..."
+		cat >>"$rc_file" <<EOF
+
+$marker_start
+$source_line
+$marker_end
+EOF
+		log_success "Prompt hook added to $rc_file"
+	done
+}
+
+# =============================================================================
 # Reload Systemd
 # =============================================================================
 
@@ -494,6 +531,7 @@ main() {
 	create_symlink
 	reload_systemd
 	authenticate_cloudflared
+	install_prompt_hook
 
 	show_summary
 }
