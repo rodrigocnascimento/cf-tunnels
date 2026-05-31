@@ -179,20 +179,31 @@ cf-tunnels/                          # Project root
 ├── run.sh                          # Main CLI tool (cftunnel)
 ├── install.sh                      # Installer script
 ├── uninstall.sh                    # Uninstaller script
+├── prompt-hook.sh                  # Shell prompt indicator
 ├── cf-ssh-diagnose.zsh             # SSH diagnostics
 ├── README.md                       # User guide
 ├── docs/
-│   └── DOCS.md                    # This file
+│   ├── DOCS.md                     # This file
+│   ├── MIGRATION.md                # v0.2.0 → v0.3.0 migration guide
+│   └── CLOUDFLARE.md               # Cloudflare basics
+├── tests/                          # Test suite
+│   ├── run.sh                      # Test runner
+│   └── ...
 ├── assets/
-│   └── logo.png                   # Project logo
-├── CHANGELOG.md                   # Version history
-└── LICENSE                        # MIT License
+│   └── logo.png                    # Project logo
+├── CHANGELOG.md                    # Version history
+└── LICENSE                         # MIT License
 
 ~/.cloudflared/                     # Cloudflare config (on your server)
-├── cert.pem                       # Authentication certificate
-├── <UUID>.json                   # Tunnel credentials (one per tunnel)
-├── <tunnel-name>.yml             # Tunnel configuration (one per tunnel)
-└── ...
+├── cert.pem                        # Authentication certificate
+├── .default_profile                # Active default profile name (v0.3.0+)
+├── <UUID>.json                     # Legacy tunnel credentials (no profile)
+├── <tunnel-name>.yml               # Legacy tunnel configuration
+└── profiles/                       # Profile isolation (v0.3.0+)
+    └── <profile-slug>/
+        ├── <UUID>.json
+        ├── <tunnel-name>.yml
+        └── profile.json            # Metadata (primary domain)
 ```
 
 ---
@@ -210,7 +221,24 @@ cf-tunnels/                          # Project root
 | `stop` | Stop tunnel | `cftunnel stop --name my-tunnel` |
 | `status` | Show status | `cftunnel status --name my-tunnel` |
 | `logs` | View logs | `cftunnel logs --name my-tunnel` |
-| `list` | List all tunnels | `cftunnel list` |
+| `list` | List tunnels (filtered by active profile if set) | `cftunnel list` |
+| `profile` | Manage persistent default profile | `cftunnel profile use homelab` |
+| `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
+
+### Profile Commands
+
+| Subcommand | Description | Example |
+|------------|-------------|---------|
+| `profile use <name>` | Set persistent default profile | `cftunnel profile use homelab` |
+| `profile current` | Show active default profile | `cftunnel profile current` |
+| `profile unset` | Clear default profile | `cftunnel profile unset` |
+
+### Global Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--profile <name>` | Operate within a specific profile (can appear anywhere) | `cftunnel --profile work add ...` |
+| `--persist` | Save `--profile` as the new default | `cftunnel --profile work --persist` |
 
 ### Flags for `add`
 
@@ -221,6 +249,7 @@ cf-tunnels/                          # Project root
 | `--service` | ✅ Yes | Local service URL | `http://localhost:3000` |
 | `--name` | No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
 | `--no-dns` | No | Skip automatic DNS CNAME creation | Use when DNS is managed externally |
+| `--profile` | No | Create in a specific profile | `cftunnel add ... --profile homelab` |
 
 ### Service URL Formats
 
@@ -399,13 +428,20 @@ ingress:
 
 ### Service Naming
 
+**Without profile:**
 ```
 cloudflared@<tunnel-name>.service
 ```
 
+**With profile:**
+```
+cloudflared@<profile>-<tunnel-name>.service
+```
+
 For example:
-- Tunnel named `api-example-com-http` → Service `cloudflared@api-example-com-http.service`
-- Config file: `~/.cloudflared/api-example-com-http.yml`
+- Tunnel named `api-example-com-http` (no profile) → Service `cloudflared@api-example-com-http.service`
+- Tunnel named `api-example-com-http` in profile `homelab` → Service `cloudflared@homelab-api-example-com-http.service`
+- Config file: `~/.cloudflared/profiles/homelab/api-example-com-http.yml`
 
 ### Service Commands
 
@@ -522,6 +558,55 @@ cloudflared access ssh --hostname work-server.YOUR_DOMAIN.com
 ```
 
 ---
+
+## Prompt Hook
+
+The `prompt-hook.sh` script shows the active cftunnel profile in your shell prompt — similar to Python venv's `(venv)` prefix.
+
+### Behavior
+
+| Shell / Theme | Result |
+|---------------|--------|
+| Plain bash/zsh | `🚇[homelab] user@host:~$` |
+| With p10k | `🚇[homelab] ~/projects` (via `POWERLEVEL9K_DIR_PREFIX`) |
+| With oh-my-zsh | Use `CFTUNNEL_PROFILE` variable in your theme |
+
+### Installation
+
+The installer (`install.sh`) automatically adds the hook to `~/.bashrc` and `~/.zshrc`:
+
+```bash
+# >>> cftunnel installer <<<
+source "/path/to/cf-tunnels/prompt-hook.sh"
+# <<< cftunnel installer <<<
+```
+
+### Manual Setup
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc:
+source /path/to/cf-tunnels/prompt-hook.sh
+```
+
+### Override Modes
+
+Set `CFTUNNEL_PROMPT_MODE` **before** sourcing:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` (default) | Detects p10k and adapts |
+| `prefix` | Always prefix `PS1`/`PROMPT` directly |
+| `none` | Only set `CFTUNNEL_PROFILE` variable (for custom themes) |
+| `dir_prefix` | Force p10k `DIR_PREFIX` |
+| `dir_suffix` | Force p10k `DIR_SUFFIX` |
+
+Example for custom theme:
+
+```bash
+export CFTUNNEL_PROMPT_MODE=none
+source /path/to/cf-tunnels/prompt-hook.sh
+# Now use $CFTUNNEL_PROFILE in your own theme config
+```
 
 ## Monitoring
 
@@ -660,6 +745,9 @@ getent ahosts api.YOUR_DOMAIN.com
 | `connection refused` | Service not running | Start your local service |
 | `502 Bad Gateway` | Service not responding | Check service is running and accessible |
 | `Authentication required` | Access policy enabled | Configure Access or disable policy |
+| `list` shows no tunnels after upgrade | Default profile active, but old tunnels have no profile | Run `cftunnel profile unset` or migrate tunnels |
+| Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
+| Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 
 ### Reset Tunnel
 

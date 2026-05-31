@@ -14,9 +14,12 @@
 
 ## Documentation
 
+- **[Migration Guide](docs/MIGRATION.md)** — Upgrading from v0.2.0 (breaking changes)
 - **[Cloudflare Basics](docs/CLOUDFLARE.md)** — What is Cloudflare, CDN, DNS, and Zero Trust
 - **[Technical Docs](docs/DOCS.md)** — Detailed reference for all features
 - **[Changelog](CHANGELOG.md)** — Version history
+
+> ⚠️ **Upgrading from v0.2.0?** See [Migration Guide](docs/MIGRATION.md) for breaking changes and step-by-step migration.
 
 ## Table of Contents
 
@@ -80,8 +83,10 @@ sequenceDiagram
 | Feature | Description |
 |---------|-------------|
 | 🚀 **One-Command Setup** | Create tunnels with a single command |
+| 🗂️ **Profiles** | Isolate tunnels by workspace/client with `--profile` |
 | 🔄 **Auto DNS** | Automatically creates CNAME records |
 | ⚙️ **Systemd Integration** | Each tunnel as a separate service |
+| 🚇 **Prompt Indicator** | Shows active profile in terminal (like Python venv) |
 | 🔒 **Fail-Fast Validation** | Validates everything before starting |
 | 🛡️ **Type Safety** | Validates protocol matches service URL |
 | 📊 **Multi-Protocol** | Supports HTTP, HTTPS, SSH, and TCP |
@@ -185,7 +190,7 @@ The installer will:
 ### 2. Create Your First Tunnel
 
 ```bash
-# For a web application
+# For a web application (in default / legacy namespace)
 ./run.sh add --hostname api.example.com --type http --service http://localhost:3000
 
 # For SSH access
@@ -198,15 +203,33 @@ The installer will:
 ./run.sh add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
 ```
 
-### 3. Manage Your Tunnels
+### 3. Use Profiles (Optional but Recommended)
+
+Organize tunnels by project or environment:
 
 ```bash
-./run.sh list          # See all tunnels
-./run.sh status        # Check status
-./run.sh logs          # View logs
-./run.sh stop          # Stop a tunnel
-./run.sh remove        # Remove a tunnel
+# Create a tunnel inside a profile
+cftunnel --profile homelab add --hostname nas.example.com --type http --service http://localhost:5000
+
+# Set a profile as your default
+cftunnel profile use homelab
+
+# Now all commands use that profile automatically
+cftunnel list          # shows only homelab tunnels
+cftunnel add --hostname plex.example.com --type http --service http://localhost:32400
 ```
+
+### 4. Manage Your Tunnels
+
+```bash
+cftunnel list          # See tunnels (filtered by active profile if set)
+cftunnel status        # Check status
+cftunnel logs          # View logs
+cftunnel stop          # Stop a tunnel
+cftunnel remove        # Remove a tunnel
+```
+
+> 💡 When a default profile is active, `list` filters by that profile. Use `cftunnel profile unset` to see all tunnels again.
 
 ---
 
@@ -216,13 +239,30 @@ The installer will:
 
 | Command | Description | Example |
 |---------|------------|---------|
-| `add` | Create tunnel, DNS, and enable service | `./run.sh add --hostname api.com --type http --service http://localhost:8080` |
-| `remove` | Delete tunnel and clean up | `./run.sh remove --name my-tunnel` |
-| `start` | Start a tunnel | `./run.sh start --name my-tunnel` |
-| `stop` | Stop a tunnel | `./run.sh stop --name my-tunnel` |
-| `status` | Show service status | `./run.sh status --name my-tunnel` |
-| `logs` | View logs in real-time | `./run.sh logs --name my-tunnel` |
-| `list` | List all tunnels | `./run.sh list` |
+| `add` | Create tunnel, DNS, and enable service | `cftunnel add --hostname api.com --type http --service http://localhost:8080` |
+| `remove` | Delete tunnel and clean up | `cftunnel remove --name my-tunnel` |
+| `start` | Start a tunnel | `cftunnel start --name my-tunnel` |
+| `stop` | Stop a tunnel | `cftunnel stop --name my-tunnel` |
+| `status` | Show service status | `cftunnel status --name my-tunnel` |
+| `logs` | View logs in real-time | `cftunnel logs --name my-tunnel` |
+| `list` | List tunnels (filtered by active profile if set) | `cftunnel list` |
+| `profile` | Manage default/persistent profile | `cftunnel profile use homelab` |
+| `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
+
+### Profile Commands
+
+| Subcommand | Description | Example |
+|------------|-------------|---------|
+| `profile use <name>` | Set persistent default profile | `cftunnel profile use homelab` |
+| `profile current` | Show active default profile | `cftunnel profile current` |
+| `profile unset` | Clear default profile | `cftunnel profile unset` |
+
+### Global Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--profile <name>` | Operate within a specific profile (can appear anywhere) | `cftunnel --profile work add ...` |
+| `--persist` | Save `--profile` as the new default | `cftunnel --profile work --persist` |
 
 ### Flags for `add`
 
@@ -233,6 +273,7 @@ The installer will:
 | `--service` | ✅ Yes | Local service URL | `http://localhost:8080` |
 | `--name` | ❌ No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
 | `--no-dns` | ❌ No | Skip automatic DNS CNAME creation | Useful when DNS is managed externally |
+| `--profile` | ❌ No | Create in a specific profile | `cftunnel add ... --profile homelab` |
 
 ### Service URL Formats
 
@@ -365,11 +406,32 @@ redis://localhost:6379
 
 ### File Structure
 
+**Without profiles (legacy / default):**
+
 ```
 ~/.cloudflared/
 ├── cert.pem                    # Authentication certificate
+├── .default_profile            # Active default profile name (v0.3.0+)
 ├── <uuid>.json                 # Tunnel credentials (one per tunnel)
 ├── <tunnel-name>.yml           # Tunnel configuration
+└── ...
+```
+
+**With profiles:**
+
+```
+~/.cloudflared/
+├── cert.pem                    # Authentication certificate
+├── .default_profile            # Active default profile name
+├── profiles/
+│   └── homelab/
+│       ├── <uuid>.json         # Credentials for this profile's tunnels
+│       ├── <tunnel-name>.yml   # Configuration
+│       └── profile.json        # Metadata (primary domain, etc.)
+│   └── work/
+│       ├── <uuid>.json
+│       ├── <tunnel-name>.yml
+│       └── profile.json
 └── ...
 ```
 
@@ -474,6 +536,9 @@ sudo journalctl -fu cloudflared@my-tunnel --since "1 hour ago"
 | `connection refused` | Service not running | Start your local service |
 | `502 Bad Gateway` | Service not responding | Check service logs |
 | DNS not resolving | Propagation delay | Wait or check Cloudflare dashboard |
+| `list` shows no tunnels after upgrade | Default profile active, but old tunnels have no profile | Run `cftunnel profile unset` or migrate tunnels |
+| Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
+| Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 
 ### Validate DNS
 
@@ -542,10 +607,20 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Pull requests welcome! Please ensure shell scripts pass syntax check:
+Pull requests welcome! Please ensure shell scripts pass syntax check and the test suite:
 
 ```bash
+# Syntax check
 bash -n run.sh
+bash -n install.sh
+bash -n uninstall.sh
+
+# Run full test suite
+cd tests
+./run.sh
+
+# Or with verbose output
+./run.sh --verbose
 ```
 
 ## Uninstall
