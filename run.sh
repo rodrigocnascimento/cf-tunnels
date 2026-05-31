@@ -195,7 +195,7 @@ instance_unit() {
 	if [[ -n "$PROFILE" ]]; then
 		local p
 		p="$(slugify "$PROFILE")"
-		echo "cloudflared@${p}-${name}.service"
+		echo "cloudflared@${p}_${name}.service"
 	else
 		echo "cloudflared@${name}.service"
 	fi

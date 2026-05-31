@@ -282,7 +282,19 @@ Wants=network-online.target
 Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
-ExecStart=/usr/local/bin/cloudflared tunnel --config ${user_home}/.cloudflared/%i.yml run
+# Support both old flat structure and new profile structure.
+# Profiled tunnels use underscore: cloudflared@<profile>_<tunnel>.service
+ExecStart=/bin/sh -c '\
+  NAME=%i; \
+  if echo "$NAME" | grep -q "_"; then \
+    PROFILE=${NAME%%_*}; \
+    TUNNEL=${NAME#*_}; \
+    CONFIG="$HOME/.cloudflared/profiles/$PROFILE/$TUNNEL.yml"; \
+    if [ ! -f "$CONFIG" ]; then CONFIG="$HOME/.cloudflared/$NAME.yml"; fi; \
+  else \
+    CONFIG="$HOME/.cloudflared/$NAME.yml"; \
+  fi; \
+  exec /usr/local/bin/cloudflared tunnel --config "$CONFIG" run'
 Restart=on-failure
 RestartSec=2
 StartLimitIntervalSec=30
@@ -316,7 +328,20 @@ Wants=network-online.target
 Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
-ExecStart=/usr/local/bin/cloudflared tunnel --config ${user_home}/.cloudflared/%i.yml run
+
+# Support both old flat structure and new profile structure.
+# Profiled tunnels use underscore: cloudflared@<profile>_<tunnel>.service
+ExecStart=/bin/sh -c '\
+  NAME=%i; \
+  if echo "$NAME" | grep -q "_"; then \
+    PROFILE=${NAME%%_*}; \
+    TUNNEL=${NAME#*_}; \
+    CONFIG="$HOME/.cloudflared/profiles/$PROFILE/$TUNNEL.yml"; \
+    if [ ! -f "$CONFIG" ]; then CONFIG="$HOME/.cloudflared/$NAME.yml"; fi; \
+  else \
+    CONFIG="$HOME/.cloudflared/$NAME.yml"; \
+  fi; \
+  exec /usr/local/bin/cloudflared tunnel --config "$CONFIG" run'
 Restart=on-failure
 RestartSec=2
 StartLimitIntervalSec=30
