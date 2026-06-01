@@ -504,7 +504,15 @@ op_add() {
 	local UUID
 	UUID="$(cloudflared tunnel list --output json | jq -r ".[] | select(.name==\"$NAME\") | .id")"
 	[[ -n "$UUID" && "$UUID" != "null" ]] || die "could not get UUID for tunnel '$NAME'"
-	local CREDS_JSON="$BASE_DIR/${UUID}.json"
+
+	# Move credentials to profile directory if using profiles
+	local CREDS_JSON="$(profile_base_dir)/${UUID}.json"
+	local created_json="$BASE_DIR/${UUID}.json"
+	if [[ -n "$PROFILE" && -f "$created_json" && ! -f "$CREDS_JSON" ]]; then
+		mv "$created_json" "$CREDS_JSON"
+		echo "[+] moved credentials to profile directory"
+	fi
+
 	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (run 'cloudflared tunnel login' and recreate the tunnel)"
 
 	# 3) Write YAML with:

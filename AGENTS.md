@@ -31,7 +31,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 - **Systemd template:** `/etc/systemd/system/cloudflared@.service` (created by `install.sh`)
 - **Profile isolation:** `--profile <name>` stores configs under `~/.cloudflared/profiles/<slug>/`
 - **Persistent default profile:** stored in `~/.cloudflared/.default_profile`
-- **Unit naming:** `cloudflared@${profile}-${name}.service` (or `cloudflared@${name}.service` without profile)
+- **Unit naming:** `cloudflared@${profile}_${name}.service` (or `cloudflared@${name}.service` without profile). `_` is the profile separator to avoid parsing conflicts with hyphens in names.
 
 ## Critical Conventions (Easy to Miss)
 
