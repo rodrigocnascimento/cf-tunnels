@@ -171,12 +171,29 @@ YAML
 		echo "    ${TUNNEL_HOSTNAME} → ${UUID}.cfargotunnel.com"
 	else
 		echo "[+] creating/updating DNS for ${TUNNEL_HOSTNAME}"
-		local DNS_OUTPUT
-		if ! DNS_OUTPUT="$(cloudflared tunnel route dns "$NAME" "$TUNNEL_HOSTNAME" 2>&1)"; then
-			echo "[!] cloudflared error: $DNS_OUTPUT"
-			die "failed to create DNS for ${TUNNEL_HOSTNAME}. Check: (1) API token configured? (2) zone in the account? (3) record already exists?"
+		local max_attempts=3
+		local attempt=0
+		local DNS_OK=false
+		while [[ $attempt -lt $max_attempts && "$DNS_OK" == false ]]; do
+			((attempt++)) || true
+			if [[ $attempt -gt 1 ]]; then
+				local wait=$(( attempt * 5 ))
+				echo "[!] retrying in ${wait}s... (attempt ${attempt}/${max_attempts})"
+				sleep "$wait"
+			fi
+			local DNS_OUTPUT
+			if DNS_OUTPUT="$(cloudflared tunnel route dns "$NAME" "$TUNNEL_HOSTNAME" 2>&1)"; then
+				DNS_OK=true
+				echo "$DNS_OUTPUT"
+			else
+				echo "[!] attempt ${attempt}/${max_attempts} failed: $DNS_OUTPUT"
+			fi
+		done
+		if [[ "$DNS_OK" == false ]]; then
+			die "failed to create DNS route after ${max_attempts} attempts.
+Run manually: cloudflared tunnel route dns $NAME $TUNNEL_HOSTNAME
+Or create a CNAME in the Cloudflare dashboard pointing to ${UUID}.cfargotunnel.com"
 		fi
-		echo "$DNS_OUTPUT"
 
 		echo "[+] verifying DNS for ${TUNNEL_HOSTNAME}..."
 		echo "[!] waiting up to 30s for propagation (Ctrl+C to skip)..."
