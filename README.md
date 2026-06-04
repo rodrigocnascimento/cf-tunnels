@@ -83,10 +83,10 @@ sequenceDiagram
 | Feature | Description |
 |---------|-------------|
 | 🚀 **One-Command Setup** | Create tunnels with a single command |
-| 🗂️ **Profiles** | Isolate tunnels by workspace/client with `--profile` |
+| 🗂️ **Zones** | Isolate tunnels by Cloudflare zone with `--zone` |
 | 🔄 **Auto DNS** | Automatically creates CNAME records |
 | ⚙️ **Systemd Integration** | Each tunnel as a separate service |
-| 🚇 **Prompt Indicator** | Shows active profile in terminal (like Python venv) |
+| 🚇 **Prompt Indicator** | Shows active zone in terminal (like Python venv) |
 | 🔒 **Fail-Fast Validation** | Validates everything before starting |
 | 🛡️ **Type Safety** | Validates protocol matches service URL |
 | 📊 **Multi-Protocol** | Supports HTTP, HTTPS, SSH, and TCP |
@@ -203,20 +203,23 @@ The installer will:
 ./run.sh add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
 ```
 
-### 3. Use Profiles (Optional but Recommended)
+### 3. Use Zones (Optional but Recommended)
 
-Organize tunnels by project or environment:
+Organize tunnels by Cloudflare zone:
 
 ```bash
-# Create a tunnel inside a profile
-cftunnel --profile homelab add --hostname nas.example.com --type http --service http://localhost:5000
+# Create a tunnel inside a zone
+cftunnel --zone homelaberson.space add --hostname nas.homelaberson.space --type http --service http://localhost:5000
 
-# Set a profile as your default
-cftunnel profile use homelab
+# Set a zone as your default
+cftunnel zone use homelaberson.space
 
-# Now all commands use that profile automatically
-cftunnel list          # shows only homelab tunnels
-cftunnel add --hostname plex.example.com --type http --service http://localhost:32400
+# Authenticate the zone (saves cert.pem to zones/homelaberson.space/)
+cftunnel zone login
+
+# Now all commands use that zone automatically
+cftunnel list          # shows only homelaberson.space tunnels
+cftunnel add --hostname plex.homelaberson.space --type http --service http://localhost:32400
 ```
 
 ### 4. Manage Your Tunnels
@@ -245,24 +248,25 @@ cftunnel remove        # Remove a tunnel
 | `stop` | Stop a tunnel | `cftunnel stop --name my-tunnel` |
 | `status` | Show service status | `cftunnel status --name my-tunnel` |
 | `logs` | View logs in real-time | `cftunnel logs --name my-tunnel` |
-| `list` | List tunnels (filtered by active profile if set) | `cftunnel list` |
-| `profile` | Manage default/persistent profile | `cftunnel profile use homelab` |
+| `list` | List tunnels (filtered by active zone if set) | `cftunnel list` |
+| `zone` | Manage default/persistent zone and authentication | `cftunnel zone use homelaberson.space` |
 | `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
 
-### Profile Commands
+### Zone Commands
 
 | Subcommand | Description | Example |
 |------------|-------------|---------|
-| `profile use <name>` | Set persistent default profile | `cftunnel profile use homelab` |
-| `profile current` | Show active default profile | `cftunnel profile current` |
-| `profile unset` | Clear default profile | `cftunnel profile unset` |
+| `zone use <name>` | Set persistent default zone | `cftunnel zone use homelaberson.space` |
+| `zone current` | Show active default zone | `cftunnel zone current` |
+| `zone unset` | Clear default zone | `cftunnel zone unset` |
+| `zone login` | Authenticate and save cert to active zone | `cftunnel zone login` |
 
 ### Global Flags
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--profile <name>` | Operate within a specific profile (can appear anywhere) | `cftunnel --profile work add ...` |
-| `--persist` | Save `--profile` as the new default | `cftunnel --profile work --persist` |
+| `--zone <name>` | Operate within a specific zone (can appear anywhere) | `cftunnel --zone testes.lat add ...` |
+| `--persist` | Save `--zone` as the new default | `cftunnel --zone testes.lat --persist` |
 
 ### Flags for `add`
 
@@ -273,7 +277,7 @@ cftunnel remove        # Remove a tunnel
 | `--service` | ✅ Yes | Local service URL | `http://localhost:8080` |
 | `--name` | ❌ No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
 | `--no-dns` | ❌ No | Skip automatic DNS CNAME creation | Useful when DNS is managed externally |
-| `--profile` | ❌ No | Create in a specific profile | `cftunnel add ... --profile homelab` |
+| `--zone` | ❌ No | Create in a specific zone | `cftunnel add ... --zone homelaberson.space` |
 
 ### Service URL Formats
 
@@ -406,32 +410,34 @@ redis://localhost:6379
 
 ### File Structure
 
-**Without profiles (legacy / default):**
+**Without zones (legacy / default):**
 
 ```
 ~/.cloudflared/
-├── cert.pem                    # Authentication certificate
-├── .default_profile            # Active default profile name (v0.3.0+)
+├── cert.pem                    # Authentication certificate (fallback)
+├── .default_zone               # Active default zone name (v0.3.0+)
 ├── <uuid>.json                 # Tunnel credentials (one per tunnel)
 ├── <tunnel-name>.yml           # Tunnel configuration
 └── ...
 ```
 
-**With profiles:**
+**With zones:**
 
 ```
 ~/.cloudflared/
-├── cert.pem                    # Authentication certificate
-├── .default_profile            # Active default profile name
-├── profiles/
-│   └── homelab/
-│       ├── <uuid>.json         # Credentials for this profile's tunnels
+├── cert.pem                    # Authentication certificate (fallback)
+├── .default_zone               # Active default zone name
+├── zones/
+│   └── homelaberson.space/
+│       ├── cert.pem            # Zone-specific cert (from zone login)
+│       ├── <uuid>.json         # Credentials for this zone's tunnels
 │       ├── <tunnel-name>.yml   # Configuration
-│       └── profile.json        # Metadata (primary domain, etc.)
-│   └── work/
+│       └── zone.json           # Metadata
+│   └── testes.lat/
+│       ├── cert.pem
 │       ├── <uuid>.json
 │       ├── <tunnel-name>.yml
-│       └── profile.json
+│       └── zone.json
 └── ...
 ```
 
@@ -536,7 +542,7 @@ sudo journalctl -fu cloudflared@my-tunnel --since "1 hour ago"
 | `connection refused` | Service not running | Start your local service |
 | `502 Bad Gateway` | Service not responding | Check service logs |
 | DNS not resolving | Propagation delay | Wait or check Cloudflare dashboard |
-| `list` shows no tunnels after upgrade | Default profile active, but old tunnels have no profile | Run `cftunnel profile unset` or migrate tunnels |
+| `list` shows no tunnels after zone set | Default zone active, but old tunnels have no zone | Run `cftunnel zone unset` or migrate tunnels |
 | Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
 | Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 

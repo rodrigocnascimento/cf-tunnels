@@ -64,13 +64,13 @@ assert_true() {
 # ── Mock helpers ──
 
 setup_mock_home() {
-	mkdir -p "$HOME/.cloudflared/profiles"
+	mkdir -p "$HOME/.cloudflared/zones"
 	# Create a fake cert.pem to bypass auth checks
 	touch "$HOME/.cloudflared/cert.pem"
 	# Override HOME_DIR so run.sh functions use the temp HOME
 	HOME_DIR="$HOME"
 	BASE_DIR="$HOME/.cloudflared"
-	DEFAULT_PROFILE_FILE="$HOME/.cloudflared/.default_profile"
+	DEFAULT_ZONE_FILE="$HOME/.cloudflared/.default_zone"
 }
 
 teardown_mock_home() {
@@ -84,5 +84,5 @@ mock_main() {
 	# Ensure functions use the temp HOME
 	HOME_DIR="$HOME"
 	BASE_DIR="$HOME/.cloudflared"
-	DEFAULT_PROFILE_FILE="$HOME/.cloudflared/.default_profile"
+	DEFAULT_ZONE_FILE="$HOME/.cloudflared/.default_zone"
 }

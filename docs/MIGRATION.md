@@ -2,7 +2,7 @@
 
 > **Breaking Change Release**
 >
-> This version introduces the **Profile System** and **Prompt Hook**. Most existing tunnels will continue to work, but `cftunnel list` behavior changes when a default profile is active.
+> This version introduces the **Zone System** and **Prompt Hook**. Most existing tunnels will continue to work, but `cftunnel list` behavior changes when a default zone is active. The previous "Profile" concept has been replaced by "Zone" to better reflect Cloudflare's DNS zone structure.
 
 ---
 
@@ -19,41 +19,53 @@
 
 ## What's New
 
-### 1. Profile System (Workspace Isolation)
+### 1. Zone System (Cloudflare Zone Isolation)
 
-Organize tunnels by project, client, or environment. Each profile has its own directory under `~/.cloudflared/profiles/<slug>/`.
-
-```bash
-# Create tunnels in isolated profiles
-cftunnel --profile homelab add --hostname nas.example.com --type http --service http://localhost:5000
-cftunnel --profile work add --hostname api.company.com --type http --service http://localhost:3000
-```
-
-### 2. Persistent Default Profile
-
-Set a profile as your default so you don't need `--profile` every time:
+Organize tunnels by Cloudflare zone. Each zone has its own directory under `~/.cloudflared/zones/<domain>/` with its own `cert.pem`.
 
 ```bash
-cftunnel profile use homelab
-cftunnel list              # shows only homelab tunnels
-cftunnel add --hostname ... # creates in homelab automatically
+# Authenticate a zone (saves cert to zone directory)
+cftunnel zone login
+
+# Create tunnels in isolated zones
+cftunnel --zone homelaberson.space add --hostname nas.homelaberson.space --type http --service http://localhost:5000
+cftunnel --zone testes.lat add --hostname app.testes.lat --type http --service http://localhost:3000
 ```
 
-### 3. Prompt Hook 🚇
+### 2. Persistent Default Zone
 
-Your terminal now shows the active profile, like Python venv's `(venv)`:
+Set a zone as your default so you don't need `--zone` every time:
+
+```bash
+cftunnel zone use homelaberson.space
+cftunnel list              # shows only homelaberson.space tunnels
+cftunnel add --hostname ... # creates in homelaberson.space automatically
+```
+
+### 3. Per-Zone Authentication (`zone login`)
+
+Each zone can have its own `cert.pem` — no more DNS records created in the wrong zone:
+
+```bash
+cftunnel zone use homelaberson.space
+cftunnel zone login        # saves cert to zones/homelaberson.space/cert.pem
+```
+
+### 4. Prompt Hook 🚇
+
+Your terminal now shows the active zone, like Python venv's `(venv)`:
 
 ```bash
 # With p10k:
-🚇[homelab] ~/projects
+🚇[homelaberson.space] ~/projects
 
 # Without p10k:
-🚇[homelab] user@host:~$
+🚇[homelaberson.space] user@host:~$
 ```
 
-### 4. Test Suite
+### 5. Test Suite
 
-43 automated tests. Run them anytime:
+43+ automated tests. Run them anytime:
 
 ```bash
 cd tests
@@ -64,7 +76,21 @@ cd tests
 
 ## Breaking Changes
 
-### 1. `cftunnel list` filters by default profile
+### 1. `--profile` replaced by `--zone`
+
+**Before v0.3.0:**
+```bash
+cftunnel --profile homelab add ...
+cftunnel profile use homelab
+```
+
+**After v0.3.0:**
+```bash
+cftunnel --zone homelaberson.space add ...
+cftunnel zone use homelaberson.space
+```
+
+### 2. `cftunnel list` filters by default zone
 
 **Before v0.3.0:**
 ```bash
@@ -73,17 +99,17 @@ cftunnel list  # showed ALL tunnels across the entire account
 
 **After v0.3.0:**
 ```bash
-cftunnel profile use homelab
-cftunnel list  # shows ONLY tunnels whose YAML exists in ~/.cloudflared/profiles/homelab/
+cftunnel zone use homelaberson.space
+cftunnel list  # shows ONLY tunnels whose YAML exists in ~/.cloudflared/zones/homelaberson.space/
 ```
 
-**Impact:** If you set a default profile, `list` will appear "empty" for tunnels that exist in Cloudflare but were created without a profile (they live in `~/.cloudflared/`, not `~/.cloudflared/profiles/<slug>/`).
+**Impact:** If you set a default zone, `list` will appear "empty" for tunnels that exist in Cloudflare but were created without a zone (they live in `~/.cloudflared/`, not `~/.cloudflared/zones/<domain>/`).
 
 **Fix:** Either:
-- `cftunnel profile unset` to clear the default and see all tunnels again
-- Or migrate old tunnels into a profile (see below)
+- `cftunnel zone unset` to clear the default and see all tunnels again
+- Or migrate old tunnels into a zone (see below)
 
-### 2. New directory structure
+### 3. New directory structure
 
 **Before:**
 ```
@@ -93,72 +119,80 @@ cftunnel list  # shows ONLY tunnels whose YAML exists in ~/.cloudflared/profiles
 └── <tunnel-name>.yml
 ```
 
-**After (with profiles):**
+**After (with zones):**
 ```
 ~/.cloudflared/
-├── cert.pem
-├── .default_profile          # stores active default profile name
-├── <uuid>.json               # tunnels without profile (legacy)
-├── <tunnel-name>.yml         # tunnels without profile (legacy)
-└── profiles/
-    └── homelab/
+├── cert.pem                      # Fallback cert
+├── .default_zone                  # stores active default zone name
+├── <uuid>.json                   # tunnels without zone (legacy)
+├── <tunnel-name>.yml             # tunnels without zone (legacy)
+└── zones/
+    └── homelaberson.space/
+        ├── cert.pem              # Zone-specific cert
         ├── <uuid>.json
         ├── <tunnel-name>.yml
-        └── profile.json      # metadata (primary domain, etc.)
+        └── zone.json             # metadata
 ```
+
+### 4. `_` is now the zone separator in systemd unit names
+
+Units with zones use underscore instead of hyphen as separator:
+- Old (profile): `cloudflared@homelab-nas.service`
+- New (zone): `cloudflared@homelaberson-space_nas.service`
 
 ---
 
 ## Step-by-Step Migration
 
-### Scenario A: You don't use profiles yet (no default set)
+### Scenario A: You don't use zones yet (no default set)
 
-**Nothing changes.** Your existing tunnels in `~/.cloudflared/` continue to work. `list` still shows everything because no default profile is active.
+**Nothing changes.** Your existing tunnels in `~/.cloudflared/` continue to work. `list` still shows everything because no default zone is active.
 
-**Recommended:** Start using profiles for *new* tunnels:
+**Recommended:** Start using zones for *new* tunnels:
 
 ```bash
-# Create a profile for your next project
-cftunnel --profile newproject add --hostname app.example.com --type http --service http://localhost:8080 --persist
+# Login and set up a zone
+cftunnel zone use homelaberson.space
+cftunnel zone login              # authenticates and saves cert
+
+# Create a tunnel in the zone
+cftunnel --zone homelaberson.space add --hostname app.homelaberson.space --type http --service http://localhost:8080 --persist
 ```
 
-### Scenario B: You want to migrate existing tunnels into a profile
+### Scenario B: You want to migrate existing tunnels into a zone
 
-1. **Create the profile** (don't set as default yet):
+1. **Create the zone** (don't set as default yet):
    ```bash
-   cftunnel --profile homelab add --hostname nas.example.com --type http --service http://localhost:5000
+   cftunnel --zone homelaberson.space add --hostname nas.homelaberson.space --type http --service http://localhost:5000
    ```
 
-2. **Move old YAMLs into the profile** (manual, one-time):
+2. **Move old YAMLs into the zone** (manual, one-time):
    ```bash
-   mkdir -p ~/.cloudflared/profiles/homelab
-   mv ~/.cloudflared/my-old-tunnel.yml ~/.cloudflared/profiles/homelab/
-   mv ~/.cloudflared/<uuid>.json ~/.cloudflared/profiles/homelab/   # move credentials too
+   mkdir -p ~/.cloudflared/zones/homelaberson.space
+   mv ~/.cloudflared/my-old-tunnel.yml ~/.cloudflared/zones/homelaberson.space/
+   mv ~/.cloudflared/<uuid>.json ~/.cloudflared/zones/homelaberson.space/
    ```
 
 3. **Update systemd unit names** (old → new):
    ```bash
-   # Old unit (no profile):
+   # Old unit (no zone):
    sudo systemctl stop cloudflared@my-old-tunnel.service
    sudo systemctl disable cloudflared@my-old-tunnel.service
    
-   # New unit (with profile):
-   sudo systemctl enable --now cloudflared@homelab-my-old-tunnel.service
+   # New unit (with zone):
+   sudo systemctl enable --now cloudflared@homelaberson-space_my-old-tunnel.service
    ```
 
 4. **Set as default** (optional):
    ```bash
-   cftunnel profile use homelab
+   cftunnel zone use homelaberson.space
    ```
 
-### Scenario C: You set a default profile but want to see all tunnels
+### Scenario C: You set a default zone but want to see all tunnels
 
 ```bash
-# Temporary: override with no profile
-cftunnel --profile "" list
-
 # Permanent: clear the default
-cftunnel profile unset
+cftunnel zone unset
 ```
 
 ### Scenario D: Prompt hook not showing / breaking your theme
@@ -172,13 +206,13 @@ grep -n "cftunnel installer" ~/.zshrc ~/.bashrc
 # Remove manually (or run ./uninstall.sh which does it automatically)
 ```
 
-If using a custom theme, set mode to `none` and read `CFTUNNEL_PROFILE` yourself:
+If using a custom theme, set mode to `none` and read `CFTUNNEL_ZONE` yourself:
 
 ```bash
 # In your ~/.zshrc, BEFORE sourcing the hook:
 export CFTUNNEL_PROMPT_MODE=none
 source /path/to/cf-tunnels/prompt-hook.sh
-# Then use $CFTUNNEL_PROFILE in your theme
+# Then use $CFTUNNEL_ZONE in your theme
 ```
 
 ---
@@ -192,11 +226,11 @@ source /path/to/cf-tunnels/prompt-hook.sh
 cftunnel add --hostname nas.example.com --type http --service http://localhost:5000
 ```
 
-**v0.3.0 (with profile):**
+**v0.3.0 (with zone):**
 ```bash
-cftunnel --profile homelab add --hostname nas.example.com --type http --service http://localhost:5000
-# OR, if homelab is your default:
-cftunnel add --hostname nas.example.com --type http --service http://localhost:5000
+cftunnel --zone homelaberson.space add --hostname nas.homelaberson.space --type http --service http://localhost:5000
+# OR, if homelaberson.space is your default:
+cftunnel add --hostname nas.homelaberson.space --type http --service http://localhost:5000
 ```
 
 ### Listing tunnels
@@ -208,9 +242,9 @@ cftunnel list   # all tunnels
 
 **v0.3.0:**
 ```bash
-cftunnel list              # tunnels in active profile (or all if no default)
-cftunnel --profile work list   # tunnels in specific profile
-cftunnel profile unset     # clear default to see all
+cftunnel list                        # tunnels in active zone (or all if no default)
+cftunnel --zone testes.lat list      # tunnels in specific zone
+cftunnel zone unset                  # clear default to see all
 ```
 
 ### Removing a tunnel
@@ -222,10 +256,10 @@ cftunnel remove --name nas-example-com-http
 
 **v0.3.0:**
 ```bash
-# If the tunnel was created WITH a profile:
-cftunnel --profile homelab remove --name nas-example-com-http
+# If the tunnel was created WITH a zone:
+cftunnel --zone homelaberson.space remove --name nas-homelaberson-space-http
 
-# If the tunnel was created WITHOUT a profile (legacy):
+# If the tunnel was created WITHOUT a zone (legacy):
 cftunnel remove --name nas-example-com-http
 ```
 
@@ -233,18 +267,16 @@ cftunnel remove --name nas-example-com-http
 
 ## Troubleshooting
 
-### "cftunnel list is empty after setting a profile"
+### "cftunnel list is empty after setting a zone"
 
-You set a default profile, but your old tunnels were created without one. They live in `~/.cloudflared/`, not `~/.cloudflared/profiles/<your-profile>/`.
+You set a default zone, but your old tunnels were created without one. They live in `~/.cloudflared/`, not `~/.cloudflared/zones/<your-zone>/`.
 
 **Fix:**
 ```bash
-cftunnel profile unset     # clear default, see all tunnels
-# OR
-cftunnel --profile "" list  # temporary override
+cftunnel zone unset     # clear default, see all tunnels
 ```
 
-### "🚇[profile] not showing in my prompt"
+### "🚇[zone] not showing in my prompt"
 
 The hook is added by `install.sh`. If you installed before v0.3.0, re-run:
 
@@ -266,12 +298,12 @@ The hook auto-detects p10k and uses `POWERLEVEL9K_DIR_PREFIX` instead of touchin
 # Disable all prompt modifications, just export the variable:
 export CFTUNNEL_PROMPT_MODE=none
 source /path/to/cf-tunnels/prompt-hook.sh
-# Now use $CFTUNNEL_PROFILE in your own theme config
+# Now use $CFTUNNEL_ZONE in your own theme config
 ```
 
 ### "systemctl status shows wrong unit name after migration"
 
-Profiled tunnels use the naming convention `cloudflared@<profile>-<tunnel>.service`. Old units were `cloudflared@<tunnel>.service`.
+Zoned tunnels use the naming convention `cloudflared@<zone-slug>_<tunnel>.service`. Old units were `cloudflared@<tunnel>.service`.
 
 ```bash
 # List all cloudflared units
@@ -279,18 +311,18 @@ systemctl list-units 'cloudflared@*'
 
 # Stop old units, start new ones
 sudo systemctl stop cloudflared@old-name.service
-sudo systemctl enable --now cloudflared@profile-old-name.service
+sudo systemctl enable --now cloudflared@zone-slug_old-name.service
 ```
 
-### "I get 'No tunnels found in profile X' but I have tunnels"
+### "I get 'No tunnels found in zone X' but I have tunnels"
 
-The tunnels were likely created before profiles existed (or in a different profile). Check where their YAML files are:
+The tunnels were likely created before zones existed (or in a different zone). Check where their YAML files are:
 
 ```bash
 find ~/.cloudflared -name "*.yml"
 ```
 
-If they're in `~/.cloudflared/` directly (not under `profiles/`), they belong to the "legacy" (no-profile) namespace.
+If they're in `~/.cloudflared/` directly (not under `zones/`), they belong to the "legacy" (no-zone) namespace.
 
 ---
 
@@ -299,15 +331,11 @@ If they're in `~/.cloudflared/` directly (not under `profiles/`), they belong to
 If you need to revert to v0.2.0 behavior immediately:
 
 ```bash
-# 1. Clear any active default profile
-cftunnel profile unset
+# 1. Clear any active default zone
+cftunnel zone unset
 
 # 2. Remove prompt hook from your shell rc files
 ./uninstall.sh   # this removes the hook blocks automatically
-
-# 3. (Optional) Move profiled YAMLs back to ~/.cloudflared/
-#    Only if you want to abandon profiles entirely:
-# mv ~/.cloudflared/profiles/*/ *.yml ~/.cloudflared/ 2>/dev/null || true
 ```
 
 For a complete code rollback, checkout the v0.2.0 tag (if tagged) or the previous commit.

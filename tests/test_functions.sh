@@ -25,59 +25,59 @@ test_slugify_empty_result() {
 	assert_eq "" "$result" "slugify empty result"
 }
 
-test_profile_base_dir_no_profile() {
-	PROFILE=""
+test_zone_base_dir_no_zone() {
+	ZONE=""
 	local result
-	result="$(profile_base_dir)"
-	assert_eq "$HOME/.cloudflared" "$result" "profile_base_dir no profile"
+	result="$(zone_base_dir)"
+	assert_eq "$HOME/.cloudflared" "$result" "zone_base_dir no zone"
 }
 
-test_profile_base_dir_with_profile() {
-	PROFILE="My Profile"
+test_zone_base_dir_with_zone() {
+	ZONE="homelaberson.space"
 	local result
-	result="$(profile_base_dir)"
-	assert_eq "$HOME/.cloudflared/profiles/my-profile" "$result" "profile_base_dir with profile"
+	result="$(zone_base_dir)"
+	assert_eq "$HOME/.cloudflared/zones/homelaberson.space" "$result" "zone_base_dir with zone"
 }
 
-test_yaml_path_for_no_profile() {
-	PROFILE=""
-	local result
-	result="$(yaml_path_for "api")"
-	assert_eq "$HOME/.cloudflared/api.yml" "$result" "yaml_path_for no profile"
-}
-
-test_yaml_path_for_with_profile() {
-	PROFILE="homelab"
+test_yaml_path_for_no_zone() {
+	ZONE=""
 	local result
 	result="$(yaml_path_for "api")"
-	assert_eq "$HOME/.cloudflared/profiles/homelab/api.yml" "$result" "yaml_path_for with profile"
+	assert_eq "$HOME/.cloudflared/api.yml" "$result" "yaml_path_for no zone"
 }
 
-test_instance_unit_no_profile() {
-	PROFILE=""
+test_yaml_path_for_with_zone() {
+	ZONE="homelaberson.space"
+	local result
+	result="$(yaml_path_for "api")"
+	assert_eq "$HOME/.cloudflared/zones/homelaberson.space/api.yml" "$result" "yaml_path_for with zone"
+}
+
+test_instance_unit_no_zone() {
+	ZONE=""
 	local result
 	result="$(instance_unit "api")"
-	assert_eq "cloudflared@api.service" "$result" "instance_unit no profile"
+	assert_eq "cloudflared@api.service" "$result" "instance_unit no zone"
 }
 
-test_instance_unit_with_profile() {
-	PROFILE="homelab"
+test_instance_unit_with_zone() {
+	ZONE="homelaberson.space"
 	local result
 	result="$(instance_unit "api")"
-	assert_eq "cloudflared@homelab-api.service" "$result" "instance_unit with profile"
+	assert_eq "cloudflared@homelaberson.space_api.service" "$result" "instance_unit with zone"
 }
 
-test_validate_profile_name_ok() {
+test_validate_zone_name_ok() {
 	local result
-	result="$(validate_profile_name "ok")"
-	assert_eq "ok" "$result" "validate_profile_name ok"
+	result="$(validate_zone_name "homelaberson.space")"
+	assert_eq "homelaberson.space" "$result" "validate_zone_name ok"
 }
 
-test_validate_profile_name_invalid() {
+test_validate_zone_name_invalid() {
 	local result exitcode=0
-	result="$(validate_profile_name "!!!" 2>/dev/null)" || exitcode=$?
-	# validate_profile_name calls die on invalid input, so it should fail
-	assert_ne 0 "$exitcode" "validate_profile_name invalid should fail"
+	result="$(validate_zone_name "" 2>/dev/null)" || exitcode=$?
+	# validate_zone_name calls die on invalid input, so it should fail
+	assert_ne 0 "$exitcode" "validate_zone_name invalid should fail"
 }
 
 test_resolve_hostname_with_dig() {

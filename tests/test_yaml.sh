@@ -60,18 +60,18 @@ YAML
 	teardown_mock_home
 }
 
-test_yaml_with_profile_path() {
+test_yaml_with_zone_path() {
 	setup_mock_home
-	mkdir -p "$HOME/.cloudflared/profiles/homelab"
+	mkdir -p "$HOME/.cloudflared/zones/homelaberson.space"
 
 	local UUID="12345678-1234-1234-1234-123456789012"
-	local YAML="$HOME/.cloudflared/profiles/homelab/test.yml"
-	local CREDS_JSON="$HOME/.cloudflared/profiles/homelab/${UUID}.json"
+	local YAML="$HOME/.cloudflared/zones/homelaberson.space/test.yml"
+	local CREDS_JSON="$HOME/.cloudflared/zones/homelaberson.space/${UUID}.json"
 
-	PROFILE="homelab"
+	ZONE="homelaberson.space"
 	local expected_dir
-	expected_dir="$(profile_base_dir)"
-	assert_eq "$HOME/.cloudflared/profiles/homelab" "$expected_dir" "profile dir correct"
+	expected_dir="$(zone_base_dir)"
+	assert_eq "$HOME/.cloudflared/zones/homelaberson.space" "$expected_dir" "zone dir correct"
 
 	cat >"$YAML" <<YAML
 tunnel: ${UUID}
@@ -79,7 +79,7 @@ credentials-file: ${CREDS_JSON}
 YAML
 	chmod 600 "$YAML"
 
-	assert_contains "$(cat "$YAML")" "$HOME/.cloudflared/profiles/homelab" "YAML creds in profile dir"
+	assert_contains "$(cat "$YAML")" "$HOME/.cloudflared/zones/homelaberson.space" "YAML creds in zone dir"
 
 	teardown_mock_home
 }

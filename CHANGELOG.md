@@ -5,47 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-05-31
+## [0.3.0] - 2026-06-01
 
 ### Added
-- **Profile system** — isolate tunnels by workspace/context:
-  - `--profile <name>` flag for all commands
-  - `profile use <name>` — set persistent default profile
-  - `profile current` — show active default profile
-  - `profile unset` — clear default profile
-  - `--persist` — save `--profile` as the new default in one command
-  - Profile metadata (`profile.json`) stores primary domain for domain-guard warnings
-- **Prompt hook** (`prompt-hook.sh`) — shows active profile in shell prompt like Python venv:
+- **Zone system** — isolate tunnels by Cloudflare zone:
+  - `--zone <name>` flag for all commands
+  - `zone use <name>` — set persistent default zone
+  - `zone current` — show active default zone
+  - `zone unset` — clear default zone
+  - `zone login` — authenticate and save `cert.pem` to the active zone directory
+  - `--persist` — save `--zone` as the new default in one command
+- **Prompt hook** (`prompt-hook.sh`) — shows active zone in shell prompt like Python venv:
   - Auto-detects p10k / plain bash / plain zsh
   - With p10k: uses `POWERLEVEL9K_DIR_PREFIX` (non-destructive)
-  - Without p10k: prefixes `PS1` with `🚇[profile-name]`
+  - Without p10k: prefixes `PS1` with `🚇[zone-name]`
   - Override modes: `auto`, `prefix`, `none`, `dir_prefix`, `dir_suffix`
   - Installer adds source line to `~/.bashrc` and `~/.zshrc` (marker-wrapped for clean removal)
-- **Test suite** — 43 tests covering functions, profiles, parser, YAML, prompt hook:
+- **Test suite** — 43+ tests covering functions, zones, parser, YAML, prompt hook:
   - `tests/run.sh` — explicit test list, phases: smoke, unit, integration, cli
   - `tests/Makefile` — `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
   - Mock `cloudflared` and `systemctl` for zero-API testing
 - `install.sh` now installs prompt hook into `~/.bashrc` / `~/.zshrc` with `# >>> cftunnel installer <<<` / `# <<< cftunnel installer <<<` markers
 - `uninstall.sh` now removes prompt hook blocks from rc files using those markers
+- `cloudflared()` wrapper now automatically injects `--origincert` based on active zone
 
 ### Changed
-- **Breaking:** `cftunnel list` now filters by the active profile when a default profile is set. Use `cftunnel profile unset` to see all tunnels again.
-- **Breaking:** `op_list` output now includes a `PROFILE` column and shows `[profile] <name>` header when filtering
+- **Pivot:** Abstract "profile" concept replaced by concrete "zone" concept:
+  - `profiles/<slug>/` → `zones/<domain>/`
+  - `.default_profile` → `.default_zone`
+  - `CFTUNNEL_PROFILE` → `CFTUNNEL_ZONE`
+- **Breaking:** `cftunnel list` now filters by the active zone when a default zone is set. Use `cftunnel zone unset` to see all tunnels again.
 - `(( i++ ))` loops changed to `(( i++ )) || true` everywhere to prevent `set -e` from killing the script on arithmetic with falsy result
 - `check_cloudflared_version()` now also skips when `cmd` is empty (avoids version check during pure config operations like `--persist`)
-- `--profile <name> --persist` without a command now exits cleanly with a confirmation message instead of falling through to `print_usage`
-- `resolve_effective_profile()` function removed (logic was already inline; dead code cleanup)
-- `AGENTS.md` updated with prompt hook, test suite, and `(( i++ ))` pitfall
+- `--zone <name> --persist` without a command now exits cleanly with a confirmation message instead of falling through to `print_usage`
+- `AGENTS.md` updated with zone conventions, test suite, and `(( i++ ))` pitfall
 
 ### Fixed
 - `(( found++ ))` in `op_list` loop was killing the script under `set -e` when `found` was 0, causing empty list output
 - YAML service quotes not being stripped in `op_list`, showing `"http` instead of `http` in the SERVICE column
-- `DEFAULT_PROFILE_FILE` path inconsistency: now always uses `$HOME/.cloudflared/.default_profile` to avoid ordering issues with `HOME_DIR`
-- `op_profile` (`set`/`use`/`switch`) not working due to `(( i++ ))` triggering `set -e` in the argument parser loop
-- `save_default_profile` now creates parent directory with `mkdir -p` to prevent errors on first run
+- `DEFAULT_ZONE_FILE` path consistency: now always uses `$HOME/.cloudflared/.default_zone` to avoid ordering issues with `HOME_DIR`
+- `op_zone` (`set`/`use`/`switch`) not working due to `(( i++ ))` triggering `set -e` in the argument parser loop
+- `save_default_zone` now creates parent directory with `mkdir -p` to prevent errors on first run
 
 ### Removed
 - Dead function `resolve_effective_profile()` (unused, logic inline since v0.2.0)
+- Profile metadata (`profile.json`, primary domain) — no longer needed with zone-based organization
 
 ## [0.2.0] - 2026-05-23
 
