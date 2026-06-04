@@ -277,28 +277,28 @@ Description=Cloudflare Tunnel (%i)
 Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
-# Support both old flat structure and new profile structure.
-# Profiled tunnels use underscore: cloudflared@<profile>_<tunnel>.service
+# Support both old flat structure and new zone structure.
+# Zoned tunnels use underscore: cloudflared@<zone-slug>_<tunnel>.service
 ExecStart=/bin/sh -c '\
   NAME=%i; \
-  if echo "$NAME" | grep -q "_"; then \
-    PROFILE=${NAME%%_*}; \
-    TUNNEL=${NAME#*_}; \
-    CONFIG="$HOME/.cloudflared/profiles/$PROFILE/$TUNNEL.yml"; \
-    if [ ! -f "$CONFIG" ]; then CONFIG="$HOME/.cloudflared/$NAME.yml"; fi; \
+  if echo "\$NAME" | grep -q "_"; then \
+    ZONE=\$(echo "\$NAME" | sed "s/_[^_]*\$//"); \
+    TUNNEL=\$(echo "\$NAME" | sed "s/^[^_]*_//"); \
+    CONFIG="${user_home}/.cloudflared/zones/\$ZONE/\$TUNNEL.yml"; \
+    if [ ! -f "\$CONFIG" ]; then CONFIG="${user_home}/.cloudflared/\$NAME.yml"; fi; \
   else \
-    CONFIG="$HOME/.cloudflared/$NAME.yml"; \
+    CONFIG="${user_home}/.cloudflared/\$NAME.yml"; \
   fi; \
-  exec /usr/local/bin/cloudflared tunnel --config "$CONFIG" run'
+  exec /usr/local/bin/cloudflared tunnel --config "\$CONFIG" run'
 Restart=on-failure
 RestartSec=2
-StartLimitIntervalSec=30
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -323,29 +323,29 @@ Description=Cloudflare Tunnel (%i)
 Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
 
-# Support both old flat structure and new profile structure.
-# Profiled tunnels use underscore: cloudflared@<profile>_<tunnel>.service
+# Support both old flat structure and new zone structure.
+# Zoned tunnels use underscore: cloudflared@<zone-slug>_<tunnel>.service
 ExecStart=/bin/sh -c '\
   NAME=%i; \
-  if echo "$NAME" | grep -q "_"; then \
-    PROFILE=${NAME%%_*}; \
-    TUNNEL=${NAME#*_}; \
-    CONFIG="$HOME/.cloudflared/profiles/$PROFILE/$TUNNEL.yml"; \
-    if [ ! -f "$CONFIG" ]; then CONFIG="$HOME/.cloudflared/$NAME.yml"; fi; \
+  if echo "\$NAME" | grep -q "_"; then \
+    ZONE=\$(echo "\$NAME" | sed "s/_[^_]*\$//"); \
+    TUNNEL=\$(echo "\$NAME" | sed "s/^[^_]*_//"); \
+    CONFIG="${user_home}/.cloudflared/zones/\$ZONE/\$TUNNEL.yml"; \
+    if [ ! -f "\$CONFIG" ]; then CONFIG="${user_home}/.cloudflared/\$NAME.yml"; fi; \
   else \
-    CONFIG="$HOME/.cloudflared/$NAME.yml"; \
+    CONFIG="${user_home}/.cloudflared/\$NAME.yml"; \
   fi; \
-  exec /usr/local/bin/cloudflared tunnel --config "$CONFIG" run'
+  exec /usr/local/bin/cloudflared tunnel --config "\$CONFIG" run'
 Restart=on-failure
 RestartSec=2
-StartLimitIntervalSec=30
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -434,43 +434,6 @@ create_symlink() {
 }
 
 # =============================================================================
-# Install Prompt Hook
-# =============================================================================
-
-install_prompt_hook() {
-	local hook_file="$SCRIPT_DIR/prompt-hook.sh"
-	if [[ ! -f "$hook_file" ]]; then
-		log_warning "prompt-hook.sh not found at $hook_file"
-		return 0
-	fi
-
-	local marker_start="# >>> cftunnel installer <<<"
-	local marker_end="# <<< cftunnel installer <<<"
-	local source_line="source \"$hook_file\""
-
-	for rc_file in "$HOME/.bashrc" "$HOME/.zshrc"; do
-		if [[ ! -f "$rc_file" ]]; then
-			continue
-		fi
-
-		# Skip if markers already present
-		if grep -qF "$marker_start" "$rc_file" 2>/dev/null; then
-			log_info "cftunnel prompt hook already in $rc_file"
-			continue
-		fi
-
-		log_info "Adding prompt hook to $rc_file..."
-		cat >>"$rc_file" <<EOF
-
-$marker_start
-$source_line
-$marker_end
-EOF
-		log_success "Prompt hook added to $rc_file"
-	done
-}
-
-# =============================================================================
 # Reload Systemd
 # =============================================================================
 
@@ -556,8 +519,6 @@ main() {
 	create_symlink
 	reload_systemd
 	authenticate_cloudflared
-	install_prompt_hook
-
 	show_summary
 }
 
