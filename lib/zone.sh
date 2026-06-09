@@ -10,7 +10,7 @@ zone_base_dir() {
 }
 
 load_default_zone() {
-	local target_file="$HOME/.cloudflared/.default_zone"
+	local target_file="$HOME_DIR/.cloudflared/.default_zone"
 
 	if [[ ! -f "$target_file" ]]; then
 		return 0
@@ -36,7 +36,7 @@ save_default_zone() {
 		die "Invalid zone name: '$zone_name'"
 	fi
 
-	local target_file="$HOME/.cloudflared/.default_zone"
+	local target_file="$HOME_DIR/.cloudflared/.default_zone"
 
 	mkdir -p "$(dirname "$target_file")"
 	echo "$zone_name" > "$target_file"
@@ -103,10 +103,10 @@ op_zone() {
 			local active_zone="$ZONE"
 			if [[ -z "$active_zone" ]]; then
 				local zones=()
-				if [[ -d "$HOME/.cloudflared/zones" ]]; then
+				if [[ -d "$HOME_DIR/.cloudflared/zones" ]]; then
 					while IFS= read -r -d '' zone_dir; do
 						zones+=("$(basename "$zone_dir")")
-					done < <(find "$HOME/.cloudflared/zones" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null || true)
+					done < <(find "$HOME_DIR/.cloudflared/zones" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null || true)
 				fi
 				if [[ ${#zones[@]} -eq 0 ]]; then
 					echo "No zones found. Create one first with:"
@@ -133,12 +133,12 @@ op_zone() {
 			echo "Authenticating with Cloudflare..."
 			"$CLOUDFLARED_BIN" tunnel login || die "Authentication failed."
 
-			local cert_src="$HOME/.cloudflared/cert.pem"
+			local cert_src="$HOME_DIR/.cloudflared/cert.pem"
 			if [[ ! -f "$cert_src" ]]; then
 				die "cert.pem not found after login."
 			fi
 
-			local cert_dst_dir="$HOME/.cloudflared/zones/$active_zone"
+			local cert_dst_dir="$HOME_DIR/.cloudflared/zones/$active_zone"
 			mkdir -p "$cert_dst_dir"
 			mv "$cert_src" "$cert_dst_dir/cert.pem"
 			echo "✅ Certificate saved to zones/$active_zone/cert.pem"
