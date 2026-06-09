@@ -10,7 +10,7 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 - **Uninstaller:** `uninstall.sh`
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **Docs:** `README.md`, `docs/DOCS.md`, `docs/CLOUDFLARE.md`
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`
 
 ## Project Type
 
@@ -19,7 +19,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (43 tests covering functions, profiles, parser, YAML, prompt hook)
+- Test suite: `cd tests && ./run.sh` (38 tests covering functions, zones, parser, YAML)
 - Test suite with full output: `./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `./run.sh list` or creating a test tunnel.
@@ -90,13 +90,6 @@ The `install.sh` template includes these directives (do not remove):
 5. If adding new flags, mirror them in the argument parser's `while/case` blocks for all affected commands.
 6. If touching DNS logic, respect the 3-tier fallback and the `has_cname_lookup()` guard.
 7. The `cloudflared()` wrapper automatically injects `--origincert` based on active zone.
-
-## Prompt Hook (Optional)
-
-`prompt-hook.sh` exports `CFTUNNEL_ZONE` with the active zone name on every prompt. It does NOT modify `PS1`/`PROMPT` — theme authors can use `$CFTUNNEL_ZONE` to display the zone.
-
-- **Usage:** `source /path/to/cf-tunnels/prompt-hook.sh` in `~/.bashrc` or `~/.zshrc`.
-- **Manual source only** — `install.sh` and `uninstall.sh` no longer touch rc files.
 
 ## Common Pitfalls
 
