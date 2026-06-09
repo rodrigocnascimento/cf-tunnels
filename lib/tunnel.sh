@@ -69,6 +69,7 @@ op_add() {
 	DEFAULT_NAME="$(echo "$DEFAULT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/\./-/g')"
 	NAME="${NAME:-$DEFAULT_NAME}"
 	NAME="$(slugify "$NAME")"
+	[[ -n "$NAME" ]] || die "tunnel name is empty after sanitization"
 	local UNIT
 	UNIT="$(instance_unit "$NAME")"
 	local YAML
@@ -115,50 +116,49 @@ op_add() {
 	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (run 'cloudflared tunnel login' and recreate the tunnel)"
 
 	if [[ -f "$YAML" ]]; then
+		local existing_entries
 		existing_entries=$(awk '/^ingress:/{flag=1; next} /  - service: http_status:404/{flag=0} flag' "$YAML" 2>/dev/null || true)
 		if echo "$existing_entries" | grep -qF "hostname: \"${TUNNEL_HOSTNAME}\"" 2>/dev/null; then
 			echo "[=] hostname '${TUNNEL_HOSTNAME}' already in ingress (ok)"
 		else
 			echo "[+] appending hostname '${TUNNEL_HOSTNAME}' to existing ingress"
-			cat >"$YAML" <<YAML
-tunnel: ${UUID}
-credentials-file: ${CREDS_JSON}
-
-protocol: "http2"
-edge-ip-version: "4"
-
-originRequest:
-  tcpKeepAlive: "30s"
-  keepAliveTimeout: "2m"
-  connectTimeout: "10s"
-
-ingress:
-${existing_entries}
-  - hostname: "${TUNNEL_HOSTNAME}"
-    service: "${SERVICE}"
-  - service: http_status:404
-YAML
+			printf '%s\n' \
+				"tunnel: ${UUID}" \
+				"credentials-file: ${CREDS_JSON}" \
+				"" \
+				'protocol: "http2"' \
+				'edge-ip-version: "4"' \
+				"" \
+				"originRequest:" \
+				'  tcpKeepAlive: "30s"' \
+				'  keepAliveTimeout: "2m"' \
+				'  connectTimeout: "10s"' \
+				"" \
+				"ingress:" \
+				"$existing_entries" \
+				"  - hostname: \"${TUNNEL_HOSTNAME}\"" \
+				"    service: \"${SERVICE}\"" \
+				"  - service: http_status:404" > "$YAML"
 			chmod 600 "$YAML"
 		fi
 	else
 		echo "[+] writing YAML: $YAML"
-		cat >"$YAML" <<YAML
-tunnel: ${UUID}
-credentials-file: ${CREDS_JSON}
-
-protocol: "http2"
-edge-ip-version: "4"
-
-originRequest:
-  tcpKeepAlive: "30s"
-  keepAliveTimeout: "2m"
-  connectTimeout: "10s"
-
-ingress:
-  - hostname: "${TUNNEL_HOSTNAME}"
-    service: "${SERVICE}"
-  - service: http_status:404
-YAML
+		printf '%s\n' \
+			"tunnel: ${UUID}" \
+			"credentials-file: ${CREDS_JSON}" \
+			"" \
+			'protocol: "http2"' \
+			'edge-ip-version: "4"' \
+			"" \
+			"originRequest:" \
+			'  tcpKeepAlive: "30s"' \
+			'  keepAliveTimeout: "2m"' \
+			'  connectTimeout: "10s"' \
+			"" \
+			"ingress:" \
+			"  - hostname: \"${TUNNEL_HOSTNAME}\"" \
+			"    service: \"${SERVICE}\"" \
+			"  - service: http_status:404" > "$YAML"
 		chmod 600 "$YAML"
 	fi
 
@@ -252,6 +252,7 @@ op_remove() {
 	ensure_template
 	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
+	[[ -n "$NAME" ]] || die "tunnel name is empty after sanitization"
 
 	if [[ $EUID -ne 0 ]]; then
 		sudo -v || die "needs sudo permission"
