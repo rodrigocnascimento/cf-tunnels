@@ -86,7 +86,6 @@ TEST_FILES=(
 	"$SCRIPT_DIR/test_zones.sh"
 	"$SCRIPT_DIR/test_parser.sh"
 	"$SCRIPT_DIR/test_yaml.sh"
-	"$SCRIPT_DIR/test_prompt.sh"
 )
 
 # ── Header ──
@@ -99,7 +98,7 @@ echo
 echo "Phase 1: Smoke Tests"
 echo "────────────────────"
 
-for script in run.sh install.sh uninstall.sh prompt-hook.sh; do
+for script in run.sh install.sh uninstall.sh; do
 	if bash -n "$PROJECT_DIR/$script"; then
 		_pass "syntax: $script"
 	else
@@ -151,14 +150,6 @@ for func in $(grep -oE '^test_[a-zA-Z0-9_]+' "$SCRIPT_DIR/test_parser.sh"); do
 done
 
 echo
-
-# ── Phase 5: Prompt Hook Tests ──
-echo "Phase 5: Prompt Hook Tests"
-echo "──────────────────────────"
-
-for func in $(grep -oE '^test_[a-zA-Z0-9_]+' "$SCRIPT_DIR/test_prompt.sh"); do
-	run_test "$SCRIPT_DIR/test_prompt.sh" "$func"
-done
 
 echo
 
