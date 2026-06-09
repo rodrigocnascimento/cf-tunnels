@@ -2,11 +2,17 @@
 _CFTUNNEL_CLOUDFLARED_LOADED=1
 
 cloudflared() {
-	local cert_path="$HOME/.cloudflared/cert.pem"
-	if [[ -n "$ZONE" && -f "$HOME/.cloudflared/zones/$ZONE/cert.pem" ]]; then
-		cert_path="$HOME/.cloudflared/zones/$ZONE/cert.pem"
+	local cert_path="$HOME_DIR/.cloudflared/cert.pem"
+	if [[ -n "$ZONE" && -f "$HOME_DIR/.cloudflared/zones/$ZONE/cert.pem" ]]; then
+		cert_path="$HOME_DIR/.cloudflared/zones/$ZONE/cert.pem"
 	fi
-	"$CLOUDFLARED_BIN" --origincert "$cert_path" "$@" 2>&1 | grep -v -i '"outdated"' || true
+	local tmpout rc
+	tmpout=$(mktemp)
+	"$CLOUDFLARED_BIN" --origincert "$cert_path" "$@" 2>"$tmpout"
+	rc=$?
+	grep -v -i '"outdated"' "$tmpout" >&2 || true
+	rm -f "$tmpout"
+	return $rc
 }
 
 update_cloudflared() {
