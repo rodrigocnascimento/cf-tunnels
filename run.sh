@@ -156,9 +156,8 @@ add)
 		--hostname) TUNNEL_HOSTNAME="${2:-}"; shift 2 ;;
 		--type)     TYPE="${2:-}"; shift 2 ;;
 		--service)  SERVICE="${2:-}"; shift 2 ;;
-		--name)     NAME="${2:-}"; shift 2 ;;
+		--name) NAME="${2:-}"; shift 2 ;;
 		--no-dns)   NO_DNS=true; shift ;;
-		--zone)     ZONE="${2:-}"; shift 2 ;;
 		-h | --help) print_usage; exit 0 ;;
 		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
 		esac
@@ -169,7 +168,6 @@ remove)
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--name) NAME="${2:-}"; shift 2 ;;
-		--zone) ZONE="${2:-}"; shift 2 ;;
 		-h | --help) print_usage; exit 0 ;;
 		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
 		esac
@@ -180,7 +178,6 @@ start)
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--name) NAME="${2:-}"; shift 2 ;;
-		--zone) ZONE="${2:-}"; shift 2 ;;
 		*) print_usage; exit 1 ;;
 		esac
 	done
@@ -190,7 +187,6 @@ stop)
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--name) NAME="${2:-}"; shift 2 ;;
-		--zone) ZONE="${2:-}"; shift 2 ;;
 		*) print_usage; exit 1 ;;
 		esac
 	done
@@ -200,7 +196,6 @@ status)
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--name) NAME="${2:-}"; shift 2 ;;
-		--zone) ZONE="${2:-}"; shift 2 ;;
 		*) print_usage; exit 1 ;;
 		esac
 	done
@@ -210,7 +205,6 @@ logs)
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 		--name) NAME="${2:-}"; shift 2 ;;
-		--zone) ZONE="${2:-}"; shift 2 ;;
 		*) print_usage; exit 1 ;;
 		esac
 	done
