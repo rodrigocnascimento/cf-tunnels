@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-08
+
+### Fixed
+- **Critical:** `cloudflared()` wrapper in `lib/cloudflared.sh` now correctly preserves exit codes:
+  - Previously: `"$CLOUDFLARED_BIN" ... 2>&1 | grep -v ... || true` swallowed **all** failures, making `op_add` believe DNS routes and tunnel creation succeeded when they failed
+  - Now: stderr is captured to a temp file, filtered, and written back to stderr; the real exit code is returned via `return $rc`
+- **Critical:** `op_add()` YAML rewrite no longer uses unquoted heredoc (`<<YAML`), eliminating command injection risk when re-writing existing tunnel configs:
+  - Previously: `${existing_entries}` expanded inside the heredoc body, allowing execution of shell code if the existing YAML was tampered with
+  - Now: uses `printf '%s\n'` to write each line explicitly, with zero expansion of file contents
+- **High:** `cloudflared()` wrapper no longer mixes stderr into stdout (`2>&1` removed):
+  - Previously: JSON warnings on stderr were injected into `cloudflared tunnel list --output json`, corrupting output consumed by `jq`
+  - Now: stdout and stderr are fully separated
+- **High:** `lib/zone.sh` now uses `$HOME_DIR` consistently instead of hardcoded `$HOME`:
+  - Fixes mismatch when `RUN_USER` overrides the effective home directory
+  - Affects `load_default_zone()`, `save_default_zone()`, and `op_zone login`
+- **High:** `lib/cloudflared.sh` now uses `$HOME_DIR` for `--origincert` path instead of `$HOME`
+- **Medium:** Removed dead `--zone)` cases from individual command parsers in `run.sh` (already consumed by the global first-pass parser)
+- **Medium:** Empty tunnel name after `slugify()` is now validated with `[[ -n "$NAME" ]] || die` in both `op_add` and `op_remove`
+- `local existing_entries` declaration added in `op_add()` to prevent global scope pollution
+
+### Removed
+- **Prompt hook (`prompt-hook.sh`)** — removed entirely:
+  - Was never auto-installed (manual source only); added maintenance surface without enough usage
+  - Users who relied on it can replicate behavior in 2 lines of shell config
+  - `tests/test_prompt.sh` removed; test suite adjusted (38 tests)
+- `install.sh` no longer references prompt hook installation
+- `uninstall.sh` no longer references prompt hook removal
+
 ## [0.3.0] - 2026-06-01
 
 ### Added
@@ -15,18 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `zone unset` — clear default zone
   - `zone login` — authenticate and save `cert.pem` to the active zone directory
   - `--persist` — save `--zone` as the new default in one command
-- **Prompt hook** (`prompt-hook.sh`) — shows active zone in shell prompt like Python venv:
-  - Auto-detects p10k / plain bash / plain zsh
-  - With p10k: uses `POWERLEVEL9K_DIR_PREFIX` (non-destructive)
-  - Without p10k: prefixes `PS1` with `🚇[zone-name]`
-  - Override modes: `auto`, `prefix`, `none`, `dir_prefix`, `dir_suffix`
-  - Installer adds source line to `~/.bashrc` and `~/.zshrc` (marker-wrapped for clean removal)
-- **Test suite** — 43+ tests covering functions, zones, parser, YAML, prompt hook:
+- **Test suite** — 43+ tests covering functions, zones, parser, YAML:
   - `tests/run.sh` — explicit test list, phases: smoke, unit, integration, cli
   - `tests/Makefile` — `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
   - Mock `cloudflared` and `systemctl` for zero-API testing
-- `install.sh` now installs prompt hook into `~/.bashrc` / `~/.zshrc` with `# >>> cftunnel installer <<<` / `# <<< cftunnel installer <<<` markers
-- `uninstall.sh` now removes prompt hook blocks from rc files using those markers
 - `cloudflared()` wrapper now automatically injects `--origincert` based on active zone
 
 ### Changed
