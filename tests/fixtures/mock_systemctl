@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# tests/fixtures/mock_systemctl
+# =============================================================================
+# Minimal mock of systemctl for testing without systemd.
+# =============================================================================
+
+case "${1:-}" in
+	is-active|is-enabled)
+		# Always report inactive/enabled to avoid breaking tests
+		if [[ "${2:-}" == *"active"* ]]; then
+			echo "inactive"
+			exit 1
+		else
+			echo "enabled"
+			exit 0
+		fi
+		;;
+	status)
+		echo "● Mock service - inactive"
+		;;
+	daemon-reload)
+		echo "Mock: daemon-reload done"
+		;;
+	start|stop|enable|disable|restart)
+		echo "Mock systemctl: $1 ${2:-}"
+		;;
+	*)
+		echo "Mock systemctl: $*"
+		;;
+esac

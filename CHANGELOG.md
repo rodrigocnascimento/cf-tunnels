@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-08
+
+### Fixed
+- **Critical:** `cloudflared()` wrapper in `lib/cloudflared.sh` now correctly preserves exit codes:
+  - Previously: `"$CLOUDFLARED_BIN" ... 2>&1 | grep -v ... || true` swallowed **all** failures, making `op_add` believe DNS routes and tunnel creation succeeded when they failed
+  - Now: stderr is captured to a temp file, filtered, and written back to stderr; the real exit code is returned via `return $rc`
+- **Critical:** `op_add()` YAML rewrite no longer uses unquoted heredoc (`<<YAML`), eliminating command injection risk when re-writing existing tunnel configs:
+  - Previously: `${existing_entries}` expanded inside the heredoc body, allowing execution of shell code if the existing YAML was tampered with
+  - Now: uses `printf '%s\n'` to write each line explicitly, with zero expansion of file contents
+- **High:** `cloudflared()` wrapper no longer mixes stderr into stdout (`2>&1` removed):
+  - Previously: JSON warnings on stderr were injected into `cloudflared tunnel list --output json`, corrupting output consumed by `jq`
+  - Now: stdout and stderr are fully separated
+- **High:** `lib/zone.sh` now uses `$HOME_DIR` consistently instead of hardcoded `$HOME`:
+  - Fixes mismatch when `RUN_USER` overrides the effective home directory
+  - Affects `load_default_zone()`, `save_default_zone()`, and `op_zone login`
+- **High:** `lib/cloudflared.sh` now uses `$HOME_DIR` for `--origincert` path instead of `$HOME`
+- **Medium:** Removed dead `--zone)` cases from individual command parsers in `run.sh` (already consumed by the global first-pass parser)
+- **Medium:** Empty tunnel name after `slugify()` is now validated with `[[ -n "$NAME" ]] || die` in both `op_add` and `op_remove`
+- `local existing_entries` declaration added in `op_add()` to prevent global scope pollution
+
+### Removed
+- **Prompt hook (`prompt-hook.sh`)** — removed entirely:
+  - Was never auto-installed (manual source only); added maintenance surface without enough usage
+  - Users who relied on it can replicate behavior in 2 lines of shell config
+  - `tests/test_prompt.sh` removed; test suite adjusted (38 tests)
+- `install.sh` no longer references prompt hook installation
+- `uninstall.sh` no longer references prompt hook removal
+
+## [0.3.0] - 2026-06-01
+
+### Added
+- **Zone system** — isolate tunnels by Cloudflare zone:
+  - `--zone <name>` flag for all commands
+  - `zone use <name>` — set persistent default zone
+  - `zone current` — show active default zone
+  - `zone unset` — clear default zone
+  - `zone login` — authenticate and save `cert.pem` to the active zone directory
+  - `--persist` — save `--zone` as the new default in one command
+- **Test suite** — 43+ tests covering functions, zones, parser, YAML:
+  - `tests/run.sh` — explicit test list, phases: smoke, unit, integration, cli
+  - `tests/Makefile` — `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
+  - Mock `cloudflared` and `systemctl` for zero-API testing
+- `cloudflared()` wrapper now automatically injects `--origincert` based on active zone
+
+### Changed
+- **Pivot:** Abstract "profile" concept replaced by concrete "zone" concept:
+  - `profiles/<slug>/` → `zones/<domain>/`
+  - `.default_profile` → `.default_zone`
+  - `CFTUNNEL_PROFILE` → `CFTUNNEL_ZONE`
+- **Breaking:** `cftunnel list` now filters by the active zone when a default zone is set. Use `cftunnel zone unset` to see all tunnels again.
+- `(( i++ ))` loops changed to `(( i++ )) || true` everywhere to prevent `set -e` from killing the script on arithmetic with falsy result
+- `check_cloudflared_version()` now also skips when `cmd` is empty (avoids version check during pure config operations like `--persist`)
+- `--zone <name> --persist` without a command now exits cleanly with a confirmation message instead of falling through to `print_usage`
+- `AGENTS.md` updated with zone conventions, test suite, and `(( i++ ))` pitfall
+
+### Fixed
+- `(( found++ ))` in `op_list` loop was killing the script under `set -e` when `found` was 0, causing empty list output
+- YAML service quotes not being stripped in `op_list`, showing `"http` instead of `http` in the SERVICE column
+- `DEFAULT_ZONE_FILE` path consistency: now always uses `$HOME/.cloudflared/.default_zone` to avoid ordering issues with `HOME_DIR`
+- `op_zone` (`set`/`use`/`switch`) not working due to `(( i++ ))` triggering `set -e` in the argument parser loop
+- `save_default_zone` now creates parent directory with `mkdir -p` to prevent errors on first run
+
+### Removed
+- Dead function `resolve_effective_profile()` (unused, logic inline since v0.2.0)
+- Profile metadata (`profile.json`, primary domain) — no longer needed with zone-based organization
+
 ## [0.2.0] - 2026-05-23
 
 ### Added

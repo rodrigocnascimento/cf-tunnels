@@ -277,16 +277,28 @@ Description=Cloudflare Tunnel (%i)
 Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
-ExecStart=/usr/local/bin/cloudflared tunnel --config ${user_home}/.cloudflared/%i.yml run
+# Support both old flat structure and new zone structure.
+# Zoned tunnels use underscore: cloudflared@<zone-slug>_<tunnel>.service
+ExecStart=/bin/sh -c '\
+  NAME=%i; \
+  if echo "\$NAME" | grep -q "_"; then \
+    ZONE=\$(echo "\$NAME" | sed "s/_[^_]*\$//"); \
+    TUNNEL=\$(echo "\$NAME" | sed "s/^[^_]*_//"); \
+    CONFIG="${user_home}/.cloudflared/zones/\$ZONE/\$TUNNEL.yml"; \
+    if [ ! -f "\$CONFIG" ]; then CONFIG="${user_home}/.cloudflared/\$NAME.yml"; fi; \
+  else \
+    CONFIG="${user_home}/.cloudflared/\$NAME.yml"; \
+  fi; \
+  exec /usr/local/bin/cloudflared tunnel --config "\$CONFIG" run'
 Restart=on-failure
 RestartSec=2
-StartLimitIntervalSec=30
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -311,16 +323,29 @@ Description=Cloudflare Tunnel (%i)
 Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=${run_user}
 WorkingDirectory=${user_home}
-ExecStart=/usr/local/bin/cloudflared tunnel --config ${user_home}/.cloudflared/%i.yml run
+
+# Support both old flat structure and new zone structure.
+# Zoned tunnels use underscore: cloudflared@<zone-slug>_<tunnel>.service
+ExecStart=/bin/sh -c '\
+  NAME=%i; \
+  if echo "\$NAME" | grep -q "_"; then \
+    ZONE=\$(echo "\$NAME" | sed "s/_[^_]*\$//"); \
+    TUNNEL=\$(echo "\$NAME" | sed "s/^[^_]*_//"); \
+    CONFIG="${user_home}/.cloudflared/zones/\$ZONE/\$TUNNEL.yml"; \
+    if [ ! -f "\$CONFIG" ]; then CONFIG="${user_home}/.cloudflared/\$NAME.yml"; fi; \
+  else \
+    CONFIG="${user_home}/.cloudflared/\$NAME.yml"; \
+  fi; \
+  exec /usr/local/bin/cloudflared tunnel --config "\$CONFIG" run'
 Restart=on-failure
 RestartSec=2
-StartLimitIntervalSec=30
-StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 
@@ -494,7 +519,6 @@ main() {
 	create_symlink
 	reload_systemd
 	authenticate_cloudflared
-
 	show_summary
 }
 

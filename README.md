@@ -14,9 +14,12 @@
 
 ## Documentation
 
+- **[Migration Guide](docs/MIGRATION.md)** — Upgrading from v0.2.0 (breaking changes)
 - **[Cloudflare Basics](docs/CLOUDFLARE.md)** — What is Cloudflare, CDN, DNS, and Zero Trust
 - **[Technical Docs](docs/DOCS.md)** — Detailed reference for all features
 - **[Changelog](CHANGELOG.md)** — Version history
+
+> ⚠️ **Upgrading from v0.2.0?** See [Migration Guide](docs/MIGRATION.md) for breaking changes and step-by-step migration.
 
 ## Table of Contents
 
@@ -80,8 +83,10 @@ sequenceDiagram
 | Feature | Description |
 |---------|-------------|
 | 🚀 **One-Command Setup** | Create tunnels with a single command |
+| 🗂️ **Zones** | Isolate tunnels by Cloudflare zone with `--zone` |
 | 🔄 **Auto DNS** | Automatically creates CNAME records |
 | ⚙️ **Systemd Integration** | Each tunnel as a separate service |
+| 🚇 **Prompt Indicator** | Shows active zone in terminal (like Python venv) |
 | 🔒 **Fail-Fast Validation** | Validates everything before starting |
 | 🛡️ **Type Safety** | Validates protocol matches service URL |
 | 📊 **Multi-Protocol** | Supports HTTP, HTTPS, SSH, and TCP |
@@ -185,7 +190,7 @@ The installer will:
 ### 2. Create Your First Tunnel
 
 ```bash
-# For a web application
+# For a web application (in default / legacy namespace)
 ./run.sh add --hostname api.example.com --type http --service http://localhost:3000
 
 # For SSH access
@@ -198,15 +203,36 @@ The installer will:
 ./run.sh add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
 ```
 
-### 3. Manage Your Tunnels
+### 3. Use Zones (Optional but Recommended)
+
+Organize tunnels by Cloudflare zone:
 
 ```bash
-./run.sh list          # See all tunnels
-./run.sh status        # Check status
-./run.sh logs          # View logs
-./run.sh stop          # Stop a tunnel
-./run.sh remove        # Remove a tunnel
+# Create a tunnel inside a zone
+cftunnel --zone homelaberson.space add --hostname nas.homelaberson.space --type http --service http://localhost:5000
+
+# Set a zone as your default
+cftunnel zone use homelaberson.space
+
+# Authenticate the zone (saves cert.pem to zones/homelaberson.space/)
+cftunnel zone login
+
+# Now all commands use that zone automatically
+cftunnel list          # shows only homelaberson.space tunnels
+cftunnel add --hostname plex.homelaberson.space --type http --service http://localhost:32400
 ```
+
+### 4. Manage Your Tunnels
+
+```bash
+cftunnel list          # See tunnels (filtered by active profile if set)
+cftunnel status        # Check status
+cftunnel logs          # View logs
+cftunnel stop          # Stop a tunnel
+cftunnel remove        # Remove a tunnel
+```
+
+> 💡 When a default profile is active, `list` filters by that profile. Use `cftunnel profile unset` to see all tunnels again.
 
 ---
 
@@ -216,13 +242,31 @@ The installer will:
 
 | Command | Description | Example |
 |---------|------------|---------|
-| `add` | Create tunnel, DNS, and enable service | `./run.sh add --hostname api.com --type http --service http://localhost:8080` |
-| `remove` | Delete tunnel and clean up | `./run.sh remove --name my-tunnel` |
-| `start` | Start a tunnel | `./run.sh start --name my-tunnel` |
-| `stop` | Stop a tunnel | `./run.sh stop --name my-tunnel` |
-| `status` | Show service status | `./run.sh status --name my-tunnel` |
-| `logs` | View logs in real-time | `./run.sh logs --name my-tunnel` |
-| `list` | List all tunnels | `./run.sh list` |
+| `add` | Create tunnel, DNS, and enable service | `cftunnel add --hostname api.com --type http --service http://localhost:8080` |
+| `remove` | Delete tunnel and clean up | `cftunnel remove --name my-tunnel` |
+| `start` | Start a tunnel | `cftunnel start --name my-tunnel` |
+| `stop` | Stop a tunnel | `cftunnel stop --name my-tunnel` |
+| `status` | Show service status | `cftunnel status --name my-tunnel` |
+| `logs` | View logs in real-time | `cftunnel logs --name my-tunnel` |
+| `list` | List tunnels (filtered by active zone if set) | `cftunnel list` |
+| `zone` | Manage default/persistent zone and authentication | `cftunnel zone use homelaberson.space` |
+| `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
+
+### Zone Commands
+
+| Subcommand | Description | Example |
+|------------|-------------|---------|
+| `zone use <name>` | Set persistent default zone | `cftunnel zone use homelaberson.space` |
+| `zone current` | Show active default zone | `cftunnel zone current` |
+| `zone unset` | Clear default zone | `cftunnel zone unset` |
+| `zone login` | Authenticate and save cert to active zone | `cftunnel zone login` |
+
+### Global Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--zone <name>` | Operate within a specific zone (can appear anywhere) | `cftunnel --zone testes.lat add ...` |
+| `--persist` | Save `--zone` as the new default | `cftunnel --zone testes.lat --persist` |
 
 ### Flags for `add`
 
@@ -233,6 +277,7 @@ The installer will:
 | `--service` | ✅ Yes | Local service URL | `http://localhost:8080` |
 | `--name` | ❌ No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
 | `--no-dns` | ❌ No | Skip automatic DNS CNAME creation | Useful when DNS is managed externally |
+| `--zone` | ❌ No | Create in a specific zone | `cftunnel add ... --zone homelaberson.space` |
 
 ### Service URL Formats
 
@@ -365,11 +410,34 @@ redis://localhost:6379
 
 ### File Structure
 
+**Without zones (legacy / default):**
+
 ```
 ~/.cloudflared/
-├── cert.pem                    # Authentication certificate
+├── cert.pem                    # Authentication certificate (fallback)
+├── .default_zone               # Active default zone name (v0.3.0+)
 ├── <uuid>.json                 # Tunnel credentials (one per tunnel)
 ├── <tunnel-name>.yml           # Tunnel configuration
+└── ...
+```
+
+**With zones:**
+
+```
+~/.cloudflared/
+├── cert.pem                    # Authentication certificate (fallback)
+├── .default_zone               # Active default zone name
+├── zones/
+│   └── homelaberson.space/
+│       ├── cert.pem            # Zone-specific cert (from zone login)
+│       ├── <uuid>.json         # Credentials for this zone's tunnels
+│       ├── <tunnel-name>.yml   # Configuration
+│       └── zone.json           # Metadata
+│   └── testes.lat/
+│       ├── cert.pem
+│       ├── <uuid>.json
+│       ├── <tunnel-name>.yml
+│       └── zone.json
 └── ...
 ```
 
@@ -474,6 +542,9 @@ sudo journalctl -fu cloudflared@my-tunnel --since "1 hour ago"
 | `connection refused` | Service not running | Start your local service |
 | `502 Bad Gateway` | Service not responding | Check service logs |
 | DNS not resolving | Propagation delay | Wait or check Cloudflare dashboard |
+| `list` shows no tunnels after zone set | Default zone active, but old tunnels have no zone | Run `cftunnel zone unset` or migrate tunnels |
+| Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
+| Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 
 ### Validate DNS
 
@@ -542,10 +613,20 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Pull requests welcome! Please ensure shell scripts pass syntax check:
+Pull requests welcome! Please ensure shell scripts pass syntax check and the test suite:
 
 ```bash
+# Syntax check
 bash -n run.sh
+bash -n install.sh
+bash -n uninstall.sh
+
+# Run full test suite
+cd tests
+./run.sh
+
+# Or with verbose output
+./run.sh --verbose
 ```
 
 ## Uninstall

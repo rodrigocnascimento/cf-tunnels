@@ -179,20 +179,32 @@ cf-tunnels/                          # Project root
 ├── run.sh                          # Main CLI tool (cftunnel)
 ├── install.sh                      # Installer script
 ├── uninstall.sh                    # Uninstaller script
+├── prompt-hook.sh                  # Shell prompt indicator
 ├── cf-ssh-diagnose.zsh             # SSH diagnostics
 ├── README.md                       # User guide
 ├── docs/
-│   └── DOCS.md                    # This file
+│   ├── DOCS.md                     # This file
+│   ├── MIGRATION.md                # v0.2.0 → v0.3.0 migration guide
+│   └── CLOUDFLARE.md               # Cloudflare basics
+├── tests/                          # Test suite
+│   ├── run.sh                      # Test runner
+│   └── ...
 ├── assets/
-│   └── logo.png                   # Project logo
-├── CHANGELOG.md                   # Version history
-└── LICENSE                        # MIT License
+│   └── logo.png                    # Project logo
+├── CHANGELOG.md                    # Version history
+└── LICENSE                         # MIT License
 
 ~/.cloudflared/                     # Cloudflare config (on your server)
-├── cert.pem                       # Authentication certificate
-├── <UUID>.json                   # Tunnel credentials (one per tunnel)
-├── <tunnel-name>.yml             # Tunnel configuration (one per tunnel)
-└── ...
+├── cert.pem                        # Authentication certificate (fallback)
+├── .default_zone                   # Active default zone name (v0.3.0+)
+├── <UUID>.json                     # Legacy tunnel credentials (no zone)
+├── <tunnel-name>.yml               # Legacy tunnel configuration
+└── zones/                          # Zone isolation (v0.3.0+)
+    └── <domain>/
+        ├── cert.pem                # Zone-specific cert (from zone login)
+        ├── <UUID>.json
+        ├── <tunnel-name>.yml
+        └── zone.json               # Metadata
 ```
 
 ---
@@ -210,7 +222,25 @@ cf-tunnels/                          # Project root
 | `stop` | Stop tunnel | `cftunnel stop --name my-tunnel` |
 | `status` | Show status | `cftunnel status --name my-tunnel` |
 | `logs` | View logs | `cftunnel logs --name my-tunnel` |
-| `list` | List all tunnels | `cftunnel list` |
+| `list` | List tunnels (filtered by active zone if set) | `cftunnel list` |
+| `zone` | Manage persistent default zone and authentication | `cftunnel zone use homelaberson.space` |
+| `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
+
+### Zone Commands
+
+| Subcommand | Description | Example |
+|------------|-------------|---------|
+| `zone use <name>` | Set persistent default zone | `cftunnel zone use homelaberson.space` |
+| `zone current` | Show active default zone | `cftunnel zone current` |
+| `zone unset` | Clear default zone | `cftunnel zone unset` |
+| `zone login` | Authenticate and save cert to active zone | `cftunnel zone login` |
+
+### Global Flags
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--zone <name>` | Operate within a specific zone (can appear anywhere) | `cftunnel --zone testes.lat add ...` |
+| `--persist` | Save `--zone` as the new default | `cftunnel --zone testes.lat --persist` |
 
 ### Flags for `add`
 
@@ -221,6 +251,7 @@ cf-tunnels/                          # Project root
 | `--service` | ✅ Yes | Local service URL | `http://localhost:3000` |
 | `--name` | No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
 | `--no-dns` | No | Skip automatic DNS CNAME creation | Use when DNS is managed externally |
+| `--zone` | No | Create in a specific zone | `cftunnel add ... --zone homelaberson.space` |
 
 ### Service URL Formats
 
@@ -399,13 +430,20 @@ ingress:
 
 ### Service Naming
 
+**Without zone:**
 ```
 cloudflared@<tunnel-name>.service
 ```
 
+**With zone:**
+```
+cloudflared@<zone-slug>_<tunnel-name>.service
+```
+
 For example:
-- Tunnel named `api-example-com-http` → Service `cloudflared@api-example-com-http.service`
-- Config file: `~/.cloudflared/api-example-com-http.yml`
+- Tunnel named `api-example-com-http` (no zone) → Service `cloudflared@api-example-com-http.service`
+- Tunnel named `api-example-com-http` in zone `homelaberson.space` → Service `cloudflared@homelaberson.space_api-example-com-http.service`
+- Config file: `~/.cloudflared/zones/homelaberson.space/api-example-com-http.yml`
 
 ### Service Commands
 
@@ -522,6 +560,55 @@ cloudflared access ssh --hostname work-server.YOUR_DOMAIN.com
 ```
 
 ---
+
+## Prompt Hook
+
+The `prompt-hook.sh` script shows the active cftunnel zone in your shell prompt — similar to Python venv's `(venv)` prefix.
+
+### Behavior
+
+| Shell / Theme | Result |
+|---------------|--------|
+| Plain bash/zsh | `🚇[homelaberson.space] user@host:~$` |
+| With p10k | `🚇[homelaberson.space] ~/projects` (via `POWERLEVEL9K_DIR_PREFIX`) |
+| With oh-my-zsh | Use `CFTUNNEL_ZONE` variable in your theme |
+
+### Installation
+
+The installer (`install.sh`) automatically adds the hook to `~/.bashrc` and `~/.zshrc`:
+
+```bash
+# >>> cftunnel installer <<<
+source "/path/to/cf-tunnels/prompt-hook.sh"
+# <<< cftunnel installer <<<
+```
+
+### Manual Setup
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc:
+source /path/to/cf-tunnels/prompt-hook.sh
+```
+
+### Override Modes
+
+Set `CFTUNNEL_PROMPT_MODE` **before** sourcing:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` (default) | Detects p10k and adapts |
+| `prefix` | Always prefix `PS1`/`PROMPT` directly |
+| `none` | Only set `CFTUNNEL_ZONE` variable (for custom themes) |
+| `dir_prefix` | Force p10k `DIR_PREFIX` |
+| `dir_suffix` | Force p10k `DIR_SUFFIX` |
+
+Example for custom theme:
+
+```bash
+export CFTUNNEL_PROMPT_MODE=none
+source /path/to/cf-tunnels/prompt-hook.sh
+# Now use $CFTUNNEL_ZONE in your own theme config
+```
 
 ## Monitoring
 
@@ -660,6 +747,9 @@ getent ahosts api.YOUR_DOMAIN.com
 | `connection refused` | Service not running | Start your local service |
 | `502 Bad Gateway` | Service not responding | Check service is running and accessible |
 | `Authentication required` | Access policy enabled | Configure Access or disable policy |
+| `list` shows no tunnels after zone set | Default zone active, but old tunnels have no zone | Run `cftunnel zone unset` or migrate tunnels |
+| Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
+| Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 
 ### Reset Tunnel
 
