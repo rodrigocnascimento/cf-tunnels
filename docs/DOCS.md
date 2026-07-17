@@ -105,6 +105,13 @@ cloudflared --version
 
 ---
 
+## Related Guides
+
+- **[Setting Up a New Domain](SETUP-NEW-DOMAIN.md)** — Complete walkthrough from domain purchase to live tunnels
+- **[Cloudflare Basics](CLOUDFLARE.md)** — Cloudflare concepts explained
+
+---
+
 ## Installation
 
 ### Option 1: Use the Installer (Recommended)

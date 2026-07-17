@@ -16,6 +16,7 @@
 
 - **[Migration Guide](docs/MIGRATION.md)** — Upgrading from v0.2.0 (breaking changes)
 - **[Cloudflare Basics](docs/CLOUDFLARE.md)** — What is Cloudflare, CDN, DNS, and Zero Trust
+- **[Setting Up a New Domain](docs/SETUP-NEW-DOMAIN.md)** — Step-by-step: from domain purchase to running tunnels
 - **[Technical Docs](docs/DOCS.md)** — Detailed reference for all features
 - **[Changelog](CHANGELOG.md)** — Version history
 
