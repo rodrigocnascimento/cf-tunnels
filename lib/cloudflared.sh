@@ -64,9 +64,11 @@ update_cloudflared() {
 }
 
 check_cloudflared_version() {
-	if [[ "$cmd" == "cli-update" || "$cmd" == "zone" || -z "${cmd:-}" ]]; then
+	case "${cmd:-}" in
+	"" | cli-update | list | zone)
 		return 0
-	fi
+		;;
+	esac
 
 	local output
 	output=$(cloudflared tunnel list --output json | cat || true)

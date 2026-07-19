@@ -116,12 +116,12 @@ test_parser_skips_version_check_for_cli_update() {
 	fi
 }
 
-test_parser_runs_version_check_for_normal_cmd() {
+test_parser_skips_version_check_for_list() {
 	mock_main
 	cmd="list"
-	if [[ "$cmd" == "cli-update" || "$cmd" == "zone" || -z "${cmd:-}" ]]; then
-		false  # Should NOT skip for list
-	else
+	if [[ "$cmd" == "cli-update" || "$cmd" == "list" || "$cmd" == "zone" || -z "${cmd:-}" ]]; then
 		true
+	else
+		false
 	fi
 }

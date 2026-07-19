@@ -3,7 +3,7 @@
 > **Issue:** CFTUNNEL-005
 > **Title:** Local Zone Ingress Listing
 > **Version:** 0.3.1 → 0.3.2
-> **Status:** Proposed
+> **Status:** Approved (implemented)
 > **Date:** 2026-07-18
 > **Author:** Rodrigo Nascimento
 
@@ -56,9 +56,14 @@ Cloudflare tunnel object.
 | `lib/cloudflared.sh` | Skip the startup version/API probe for the local-only `list` command |
 | `tests/test_list.sh` | Add focused local listing and ingress parsing coverage |
 | `tests/run.sh` | Register the new list integration tests |
+| `tests/test_parser.sh`, `tests/test_zones.sh` | Update version-check and empty-list expectations |
+| `tests/Makefile` | Remove a stale smoke check for the deleted prompt hook |
+| `run.sh` | Clarify the `list` help text |
 | `README.md`, `docs/DOCS.md`, `docs/MIGRATION.md` | Document local-only route listing and no-zone behavior |
+| `docs/SETUP-NEW-DOMAIN.md`, `AGENTS.md`, `CHANGELOG.md` | Update setup examples, repository guidance, and release notes |
 
-No implementation file is changed by this proposal document.
+Implementation was completed on the CFTUNNEL-005 feature branch after this
+proposal was approved.
 
 ---
 
@@ -382,22 +387,22 @@ No data migration or external cleanup is required.
 
 ## Acceptance Criteria
 
-- [ ] `cftunnel list` makes zero calls to `cloudflared`, including startup version checks.
-- [ ] `cftunnel list` does not require `jq`.
-- [ ] With an active zone, only `~/.cloudflared/zones/<active-zone>/*.yml` is scanned.
-- [ ] With no active zone, `~/.cloudflared/zones/*/*.yml` is scanned across all zones.
-- [ ] Root-level `~/.cloudflared/*.yml` files are always ignored.
-- [ ] One output row is printed for every valid ingress hostname/service pair.
-- [ ] A YAML containing five hostname routes prints all five exact hostnames.
-- [ ] Each hostname is paired with its own service protocol.
-- [ ] Hostname-less fallback rules are not printed.
-- [ ] Wildcard and long hostnames are not expanded or truncated.
-- [ ] Zone, tunnel name, UUID, unit, and status are derived from local state.
-- [ ] The `CREATED` column is removed.
-- [ ] Missing or empty zone directories produce a clear message and exit zero.
-- [ ] All-zone output is deterministic by zone and YAML filename while preserving ingress order.
-- [ ] `bash -n run.sh lib/*.sh tests/*.sh` reports zero syntax errors.
-- [ ] `cd tests && ./run.sh` passes all existing and new tests.
-- [ ] User documentation describes `list` as local zone ingress listing.
+- [x] `cftunnel list` makes zero calls to `cloudflared`, including startup version checks.
+- [x] `cftunnel list` does not require `jq`.
+- [x] With an active zone, only `~/.cloudflared/zones/<active-zone>/*.yml` is scanned.
+- [x] With no active zone, `~/.cloudflared/zones/*/*.yml` is scanned across all zones.
+- [x] Root-level `~/.cloudflared/*.yml` files are always ignored.
+- [x] One output row is printed for every valid ingress hostname/service pair.
+- [x] A YAML containing five hostname routes prints all five exact hostnames.
+- [x] Each hostname is paired with its own service protocol.
+- [x] Hostname-less fallback rules are not printed.
+- [x] Wildcard and long hostnames are not expanded or truncated.
+- [x] Zone, tunnel name, UUID, unit, and status are derived from local state.
+- [x] The `CREATED` column is removed.
+- [x] Missing or empty zone directories produce a clear message and exit zero.
+- [x] All-zone output is deterministic by zone and YAML filename while preserving ingress order.
+- [x] `bash -n run.sh lib/*.sh tests/*.sh` reports zero syntax errors.
+- [x] `cd tests && ./run.sh` passes all existing and new tests.
+- [x] User documentation describes `list` as local zone ingress listing.
 
 (End of file)

@@ -323,49 +323,113 @@ op_logs() {
 	sudo journalctl -fu "$(instance_unit "$NAME")"
 }
 
-op_list() {
-	need jq
+list_yaml_files() {
+	local zones_dir="$HOME_DIR/.cloudflared/zones"
+	[[ -d "$zones_dir" ]] || return 0
 
+	if [[ -n "$ZONE" ]]; then
+		local zone_dir="$zones_dir/$ZONE"
+		[[ -d "$zone_dir" ]] || return 0
+		find "$zone_dir" -mindepth 1 -maxdepth 1 -type f -name '*.yml' -print0 2>/dev/null | sort -z
+	else
+		find "$zones_dir" -mindepth 2 -maxdepth 2 -type f -name '*.yml' -print0 2>/dev/null | sort -z
+	fi
+}
+
+tunnel_uuid_from_yaml() {
+	local yaml="$1"
+	awk '
+		function trim(value) {
+			sub(/^[[:space:]]+/, "", value)
+			sub(/[[:space:]]+$/, "", value)
+			return value
+		}
+		function unquote(value, quote) {
+			value = trim(value)
+			quote = substr(value, 1, 1)
+			if (length(value) >= 2 && (quote == "\"" || quote == "\047") && substr(value, length(value), 1) == quote) {
+				return substr(value, 2, length(value) - 2)
+			}
+			return value
+		}
+		/^tunnel:[[:space:]]*/ {
+			value = $0
+			sub(/^tunnel:[[:space:]]*/, "", value)
+			print unquote(value)
+			exit
+		}
+	' "$yaml"
+}
+
+ingress_routes_from_yaml() {
+	local yaml="$1"
+	awk '
+		function trim(value) {
+			sub(/^[[:space:]]+/, "", value)
+			sub(/[[:space:]]+$/, "", value)
+			return value
+		}
+		function unquote(value, quote) {
+			value = trim(value)
+			quote = substr(value, 1, 1)
+			if (length(value) >= 2 && (quote == "\"" || quote == "\047") && substr(value, length(value), 1) == quote) {
+				return substr(value, 2, length(value) - 2)
+			}
+			return value
+		}
+		/^ingress:[[:space:]]*$/ {
+			in_ingress = 1
+			hostname = ""
+			next
+		}
+		in_ingress && /^[^[:space:]#][^:]*:/ {
+			in_ingress = 0
+			hostname = ""
+		}
+		in_ingress && /^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*/ {
+			value = $0
+			sub(/^[[:space:]]*-[[:space:]]*hostname:[[:space:]]*/, "", value)
+			hostname = unquote(value)
+			next
+		}
+		in_ingress && hostname != "" && /^[[:space:]]+service:[[:space:]]*/ {
+			value = $0
+			sub(/^[[:space:]]+service:[[:space:]]*/, "", value)
+			service = unquote(value)
+			if (service != "") {
+				printf "%s\t%s\n", hostname, service
+			}
+			hostname = ""
+			next
+		}
+		in_ingress && /^[[:space:]]*-[[:space:]]+/ {
+			hostname = ""
+		}
+	' "$yaml"
+}
+
+op_list() {
 	if [[ -n "$ZONE" ]]; then
 		echo "[zone] $ZONE"
 	fi
 
-	local zone_filter=""
-	if [[ -n "$ZONE" ]]; then
-		zone_filter="$ZONE"
-	fi
-
-	local arr
-	arr="$(cloudflared tunnel list --output json | jq -rc '.[] | [.name, .id, (.created_at // "unknown")] | @tsv')"
-
-	printf "%-22s %-22s %-28s %-10s %-10s %-30s %-38s %s\n" \
-		"ZONE" "NAME" "HOSTNAME" "STATUS" "SERVICE" "UNIT" "UUID" "CREATED"
+	printf "%-22s %-28s %-40s %-10s %-10s %-48s %s\n" \
+		"ZONE" "NAME" "HOSTNAME" "STATUS" "SERVICE" "UNIT" "UUID"
 
 	local found=0
-	while IFS=$'\t' read -r n id created_at; do
-		[[ -z "$n" ]] && continue
+	local yaml
+	while IFS= read -r -d '' yaml; do
+		local zone_name
+		zone_name="$(basename "$(dirname "$yaml")")"
 
-		local search_dir
-		if [[ -n "$zone_filter" ]]; then
-			search_dir="$HOME_DIR/.cloudflared/zones/$zone_filter"
-			if [[ ! -d "$search_dir" ]]; then
-				search_dir=""
-			fi
-		else
-			search_dir="$HOME_DIR/.cloudflared"
-		fi
+		local name
+		name="$(basename "$yaml" .yml)"
 
-		local yml=""
-		[[ -n "$search_dir" ]] && yml="$search_dir/${n}.yml"
+		local uuid
+		uuid="$(tunnel_uuid_from_yaml "$yaml")"
+		[[ -n "$uuid" ]] || uuid="-"
 
-		if [[ -n "$zone_filter" ]]; then
-			if [[ -z "$yml" || ! -f "$yml" ]]; then
-				continue
-			fi
-		fi
-
-		local unit
-		unit="$(instance_unit "$n")"
+		local unit="cloudflared@${zone_name}_${name}.service"
 
 		local status="inactive"
 		if systemctl is-active --quiet "$unit" 2>/dev/null; then
@@ -374,61 +438,30 @@ op_list() {
 			status="enabled"
 		fi
 
-		local host="-" svc_proto="-" zone_name="-"
+		local unit_display="@${unit#*@}"
+		local hostname full_service
+		while IFS=$'\t' read -r hostname full_service; do
+			[[ -n "$hostname" && -n "$full_service" ]] || continue
 
-		if [[ -n "$yml" && -f "$yml" ]]; then
-			host="$(awk -F: '/^[[:space:]]*-?[[:space:]]*hostname:/ {gsub(/"/, "", $2); gsub(/^[ \t]+/, "", $2); print $2; exit}' "$yml" || echo "-")"
-
-			local full_service
-			full_service="$(awk '/service:/{print $2; exit}' "$yml" || echo "-")"
-			full_service="${full_service//\"/}"
+			local service_protocol
 			if [[ "$full_service" == *"://"* ]]; then
-				svc_proto="${full_service%%://*}"
+				service_protocol="${full_service%%://*}"
 			else
-				svc_proto="$full_service"
+				service_protocol="$full_service"
 			fi
 
-			if [[ -z "$zone_filter" ]]; then
-				if [[ "$yml" == */zones/* ]]; then
-					zone_name="$(basename "$(dirname "$yml")")"
-				else
-					zone_name="default"
-				fi
-			else
-				zone_name="$zone_filter"
-			fi
-		else
-			if [[ -z "$zone_filter" ]]; then
-				zone_name="?"
-			fi
-		fi
+			((found++)) || true
+			printf "%-22s %-28s %-40s %-10s %-10s %-48s %s\n" \
+				"$zone_name" "$name" "$hostname" "$status" "$service_protocol" "$unit_display" "$uuid"
+		done < <(ingress_routes_from_yaml "$yaml")
+	done < <(list_yaml_files)
 
-		local created_display="$created_at"
-		if [[ "$created_at" == *"T"* ]]; then
-			created_display="${created_at%%T*}"
-		fi
-
-		local unit_short="${unit#*@}"
-		local unit_display="@${unit_short}"
-
-		if [[ ${#unit_display} -gt 28 ]]; then
-			unit_display="${unit_display:0:25}..."
-		fi
-
-		local host_display="$host"
-		if [[ ${#host} -gt 26 ]]; then
-			host_display="${host:0:24}..."
-		fi
-
-		((found++)) || true
-		printf "%-22s %-22s %-28s %-10s %-10s %-30s %-38s %s\n" \
-			"$zone_name" "$n" "$host_display" "$status" "$svc_proto" "$unit_display" "$id" "$created_display"
-	done <<<"$arr"
-
-	if [[ -n "$zone_filter" && $found -eq 0 ]]; then
+	if [[ $found -eq 0 ]]; then
 		echo
-		echo "[!] No tunnels found in zone '$zone_filter'."
-		echo "    Use 'cftunnel zone unset' to clear the default, or create a tunnel with:"
-		echo "    cftunnel add ... --zone $zone_filter"
+		if [[ -n "$ZONE" ]]; then
+			echo "[!] No hostname routes found in zone '$ZONE'."
+		else
+			echo "[!] No hostname routes found in configured zones."
+		fi
 	fi
 }

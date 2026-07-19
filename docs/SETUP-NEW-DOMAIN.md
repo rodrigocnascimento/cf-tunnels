@@ -219,18 +219,18 @@ You must create the CNAME record manually pointing to `<uuid>.cfargotunnel.com`.
 
 ## Step 7 — Verify everything
 
-### List tunnels under the zone
+### List hostname routes under the zone
 
 ```bash
 cftunnel list
 ```
 
-Expected output shows all tunnels in the active zone:
+Expected output shows every locally configured ingress hostname in the active zone:
 
 ```
-Tunnels in zone 'mynewdomain.com':
-  - app.mynewdomain.com (running)
-  - ssh.mynewdomain.com (running)
+ZONE             NAME                    HOSTNAME                   STATUS  SERVICE
+mynewdomain.com  mynewdomain-com-http    app.mynewdomain.com       active  http
+mynewdomain.com  mynewdomain-com-ssh     ssh.mynewdomain.com       active  ssh
 ```
 
 ### Check systemd status
@@ -319,7 +319,7 @@ mynewdomain.com/
 | Domain still **Pending** in dashboard | Nameservers not propagated | Wait — check with `dig @1.1.1.1 +short mynewdomain.com` |
 | Tunnel won't start | Bad config or service not running | `cftunnel logs --name <name>` |
 | DNS propagation check fails | `dig` not installed | The script uses 3-tier fallback (`dig` → `host` → `getent`), but DNS verification is best-effort — the tunnel starts regardless |
-| `list` shows no tunnels | Default zone is filtering | Run `cftunnel zone unset` or use `--zone` |
+| `list` shows no hostname routes | Selected zone has no YAML ingress hostnames | Run `cftunnel zone unset` to scan all local zones or use `--zone` |
 
 ---
 
@@ -356,5 +356,5 @@ dig @1.1.1.1 +short app.mynewdomain.com
 | `cftunnel zone unset` | Clear the default zone |
 | `cftunnel --zone <domain> add …` | Add tunnel under a non-default zone |
 | `cftunnel add …` | Add tunnel under the default zone |
-| `cftunnel list` | List tunnels in the active zone |
+| `cftunnel list` | List local hostname routes in the active zone, or all zones if none is active |
 | `cftunnel cli-update` | Update the `cloudflared` binary |

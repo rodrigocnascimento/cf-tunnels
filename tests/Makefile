@@ -24,7 +24,6 @@ smoke:
 	@bash -n ../run.sh && echo "  ✓ run.sh"
 	@bash -n ../install.sh && echo "  ✓ install.sh"
 	@bash -n ../uninstall.sh && echo "  ✓ uninstall.sh"
-	@bash -n ../prompt-hook.sh && echo "  ✓ prompt-hook.sh"
 	@echo ""
 	@echo "  Checking dependencies..."
 	@command -v jq >/dev/null 2>&1 && echo "  ✓ jq" || echo "  ⚠ jq missing"

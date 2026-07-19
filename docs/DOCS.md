@@ -229,7 +229,7 @@ cf-tunnels/                          # Project root
 | `stop` | Stop tunnel | `cftunnel stop --name my-tunnel` |
 | `status` | Show status | `cftunnel status --name my-tunnel` |
 | `logs` | View logs | `cftunnel logs --name my-tunnel` |
-| `list` | List tunnels (filtered by active zone if set) | `cftunnel list` |
+| `list` | List local hostname routes in the active zone, or all local zones if none is active | `cftunnel list` |
 | `zone` | Manage persistent default zone and authentication | `cftunnel zone use homelaberson.space` |
 | `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
 
@@ -754,7 +754,7 @@ getent ahosts api.YOUR_DOMAIN.com
 | `connection refused` | Service not running | Start your local service |
 | `502 Bad Gateway` | Service not responding | Check service is running and accessible |
 | `Authentication required` | Access policy enabled | Configure Access or disable policy |
-| `list` shows no tunnels after zone set | Default zone active, but old tunnels have no zone | Run `cftunnel zone unset` or migrate tunnels |
+| `list` shows no hostname routes | The active zone has no YAML ingress hostnames | Select the correct zone or run `cftunnel zone unset` to scan every local zone |
 | Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
 | Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 
