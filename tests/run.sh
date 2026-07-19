@@ -87,6 +87,7 @@ TEST_FILES=(
 	"$SCRIPT_DIR/test_zones.sh"
 	"$SCRIPT_DIR/test_list.sh"
 	"$SCRIPT_DIR/test_parser.sh"
+	"$SCRIPT_DIR/test_version.sh"
 	"$SCRIPT_DIR/test_yaml.sh"
 )
 
@@ -143,12 +144,16 @@ done
 
 echo
 
-# ── Phase 4: CLI Parser Tests ──
-echo "Phase 4: CLI Parser Tests"
-echo "─────────────────────────"
+# ── Phase 4: CLI Tests ──
+echo "Phase 4: CLI Tests"
+echo "──────────────────"
 
-for func in $(grep -oE '^test_[a-zA-Z0-9_]+' "$SCRIPT_DIR/test_parser.sh"); do
-	run_test "$SCRIPT_DIR/test_parser.sh" "$func"
+for file in test_parser.sh test_version.sh; do
+	file_path="$SCRIPT_DIR/$file"
+	echo "  → $file"
+	for func in $(grep -oE '^test_[a-zA-Z0-9_]+' "$file_path"); do
+		run_test "$file_path" "$func"
+	done
 done
 
 echo
