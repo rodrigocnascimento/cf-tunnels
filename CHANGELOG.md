@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-18
+
 ### Added
 - Added `cftunnel version` and `cftunnel --version` to report the application version from `VERSION` without requiring a zone, Cloudflare credentials, `cloudflared`, or network access.
 
