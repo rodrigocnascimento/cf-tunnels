@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-18
+
 ### Changed
 - `cftunnel list` is now fully local and reads only `~/.cloudflared/zones/<zone>/*.yml`.
 - An active zone lists its ingress hostname routes; no active zone lists routes from every local zone.
