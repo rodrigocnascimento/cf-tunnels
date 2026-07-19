@@ -99,7 +99,7 @@ test_list_with_empty_zone_shows_message() {
 
 	local output
 	output="$(op_list 2>&1 || true)"
-	assert_contains "$output" "No tunnels found" "list should show empty message"
+	assert_contains "$output" "No hostname routes found" "list should show empty message"
 
 	teardown_mock_home
 }

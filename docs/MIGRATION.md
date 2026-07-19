@@ -103,11 +103,17 @@ cftunnel zone use homelaberson.space
 cftunnel list  # shows ONLY tunnels whose YAML exists in ~/.cloudflared/zones/homelaberson.space/
 ```
 
-**Impact:** If you set a default zone, `list` will appear "empty" for tunnels that exist in Cloudflare but were created without a zone (they live in `~/.cloudflared/`, not `~/.cloudflared/zones/<domain>/`).
+**Current behavior (v0.3.2+):** `list` reads local YAML only and prints every
+hostname/service ingress route. It does not query the Cloudflare account. With
+no default zone, it scans `~/.cloudflared/zones/*/*.yml` across all local zones.
+Root-level legacy YAML files are intentionally ignored.
+
+**Impact:** Tunnels that exist only in Cloudflare, or only in legacy root-level
+YAML files, are not displayed by `cftunnel list`.
 
 **Fix:** Either:
-- `cftunnel zone unset` to clear the default and see all tunnels again
-- Or migrate old tunnels into a zone (see below)
+- `cftunnel zone unset` to clear the default and see all configured zones
+- Or migrate old root-level tunnels into a zone (see below)
 
 ### 3. New directory structure
 
@@ -146,7 +152,9 @@ Units with zones use underscore instead of hyphen as separator:
 
 ### Scenario A: You don't use zones yet (no default set)
 
-**Nothing changes.** Your existing tunnels in `~/.cloudflared/` continue to work. `list` still shows everything because no default zone is active.
+Existing tunnels in `~/.cloudflared/` continue to run as legacy services, but
+`cftunnel list` does not display root-level YAML files. Migrate them into a zone
+to include their hostname routes in local listing.
 
 **Recommended:** Start using zones for *new* tunnels:
 
@@ -242,9 +250,9 @@ cftunnel list   # all tunnels
 
 **v0.3.0:**
 ```bash
-cftunnel list                        # tunnels in active zone (or all if no default)
-cftunnel --zone testes.lat list      # tunnels in specific zone
-cftunnel zone unset                  # clear default to see all
+cftunnel list                        # routes in active zone (or all local zones if no default)
+cftunnel --zone testes.lat list      # routes in a specific local zone
+cftunnel zone unset                  # clear default to list all local zones
 ```
 
 ### Removing a tunnel
@@ -269,11 +277,12 @@ cftunnel remove --name nas-example-com-http
 
 ### "cftunnel list is empty after setting a zone"
 
-You set a default zone, but your old tunnels were created without one. They live in `~/.cloudflared/`, not `~/.cloudflared/zones/<your-zone>/`.
+The selected zone has no YAML files with hostname ingress rules. Root-level
+legacy YAML files are not part of local zone listing.
 
 **Fix:**
 ```bash
-cftunnel zone unset     # clear default, see all tunnels
+cftunnel zone unset     # clear default, see routes from all local zones
 ```
 
 ### "🚇[zone] not showing in my prompt"

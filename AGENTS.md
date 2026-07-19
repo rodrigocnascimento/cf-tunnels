@@ -10,7 +10,7 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 - **Uninstaller:** `uninstall.sh`
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **Docs:** `README.md`, `docs/DOCS.md`, `docs/CLOUDFLARE.md`
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`
 
 ## Project Type
 
@@ -19,7 +19,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (38 tests covering functions, zones, parser, YAML)
+- Test suite: `cd tests && ./run.sh` (44 tests covering functions, zones, local listing, parser, YAML)
 - Test suite with full output: `./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `./run.sh list` or creating a test tunnel.
@@ -27,7 +27,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 
 ## Architecture
 
-- **One tunnel = one YAML** in `~/.cloudflared/<name>.yml`
+- **One tunnel = one YAML** in `~/.cloudflared/zones/<domain>/<name>.yml`
 - **Systemd template:** `/etc/systemd/system/cloudflared@.service` (created by `install.sh`)
 - **Zone isolation:** `--zone <name>` stores configs under `~/.cloudflared/zones/<domain>/`
 - **Persistent default zone:** stored in `~/.cloudflared/.default_zone`
@@ -67,10 +67,11 @@ If no `dig`/`host`, the `cfargotunnel.com` check is skipped gracefully; DNS stil
 - `--persist` — combined with `--zone`, saves it as the default persistent zone.
 - `zone login` — authenticates with Cloudflare and saves `cert.pem` to the active zone directory.
 - `cli-update` — self-updates the `cloudflared` binary; skips version check.
+- `list` — reads hostname routes only from zone YAML files. An active zone scans that zone; no active zone scans all `zones/*/*.yml`. Root-level YAML and the Cloudflare API are not used.
 
 ## Version Check Behavior
 
-`check_cloudflared_version()` runs on **every** command except `cli-update` and `zone`. It probes `cloudflared tunnel list`, filters the "outdated" JSON warning via a wrapper function, and interactively prompts to update if outdated.
+`check_cloudflared_version()` runs on **every** command except `cli-update`, `list`, and `zone`. It probes `cloudflared tunnel list`, filters the "outdated" JSON warning via a wrapper function, and interactively prompts to update if outdated. `list` is exempt so it remains fully local and offline-capable.
 
 ## Security Hardening in Systemd Template
 
@@ -98,3 +99,4 @@ The `install.sh` template includes these directives (do not remove):
 - `uninstall.sh` must stop `cloudflared@*` services **before** removing the systemd template (v0.2.0 fix).
 - The `--zone` flag can appear anywhere in the command line; the parser extracts it in a first pass before the main `case` logic.
 - **`(( i++ ))` + `set -e`** — bash arithmetic `(( 0 ))` returns exit code 1 (falsy), which triggers `set -e` and kills the script. Always use `(( i++ )) || true` in loops when `errexit` is active.
+- `cftunnel list` is route-centric: parse every hostname/service pair under `ingress:` and ignore hostname-less fallback rules such as `http_status:404`.

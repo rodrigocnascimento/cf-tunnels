@@ -34,7 +34,7 @@ Commands:
   add           --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--no-dns]
   remove        --name NAME
   start|stop|status|logs   --name NAME
-  list
+  list          List local hostname routes in the active zone (or all zones if none)
   cli-update    Update the cloudflared binary to the latest version
   zone          Manage persistent default zone and authentication
 

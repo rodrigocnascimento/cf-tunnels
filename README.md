@@ -204,7 +204,7 @@ The installer will:
 ./run.sh add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
 ```
 
-### 3. Use Zones (Optional but Recommended)
+### 3. Use Zones
 
 Organize tunnels by Cloudflare zone:
 
@@ -219,21 +219,21 @@ cftunnel zone use homelaberson.space
 cftunnel zone login
 
 # Now all commands use that zone automatically
-cftunnel list          # shows only homelaberson.space tunnels
+cftunnel list          # shows every local hostname route in homelaberson.space
 cftunnel add --hostname plex.homelaberson.space --type http --service http://localhost:32400
 ```
 
 ### 4. Manage Your Tunnels
 
 ```bash
-cftunnel list          # See tunnels (filtered by active profile if set)
+cftunnel list          # See local hostname routes in the active zone
 cftunnel status        # Check status
 cftunnel logs          # View logs
 cftunnel stop          # Stop a tunnel
 cftunnel remove        # Remove a tunnel
 ```
 
-> 💡 When a default profile is active, `list` filters by that profile. Use `cftunnel profile unset` to see all tunnels again.
+> 💡 When a default zone is active, `list` reads that zone's YAML files. Use `cftunnel zone unset` to list hostname routes from every local zone. The command does not query Cloudflare.
 
 ---
 
@@ -249,7 +249,7 @@ cftunnel remove        # Remove a tunnel
 | `stop` | Stop a tunnel | `cftunnel stop --name my-tunnel` |
 | `status` | Show service status | `cftunnel status --name my-tunnel` |
 | `logs` | View logs in real-time | `cftunnel logs --name my-tunnel` |
-| `list` | List tunnels (filtered by active zone if set) | `cftunnel list` |
+| `list` | List local hostname routes in the active zone, or all local zones if none is active | `cftunnel list` |
 | `zone` | Manage default/persistent zone and authentication | `cftunnel zone use homelaberson.space` |
 | `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
 
@@ -422,6 +422,8 @@ redis://localhost:6379
 └── ...
 ```
 
+> Root-level legacy YAML files are not included by `cftunnel list`. Migrate supported configurations into `~/.cloudflared/zones/<domain>/`.
+
 **With zones:**
 
 ```
@@ -543,7 +545,7 @@ sudo journalctl -fu cloudflared@my-tunnel --since "1 hour ago"
 | `connection refused` | Service not running | Start your local service |
 | `502 Bad Gateway` | Service not responding | Check service logs |
 | DNS not resolving | Propagation delay | Wait or check Cloudflare dashboard |
-| `list` shows no tunnels after zone set | Default zone active, but old tunnels have no zone | Run `cftunnel zone unset` or migrate tunnels |
+| `list` shows no hostname routes | The active zone has no YAML ingress hostnames | Select the correct zone or run `cftunnel zone unset` to scan every local zone |
 | Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
 | Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- `cftunnel list` is now fully local and reads only `~/.cloudflared/zones/<zone>/*.yml`.
+- An active zone lists its ingress hostname routes; no active zone lists routes from every local zone.
+- Multi-hostname tunnel YAMLs now print one row per hostname/service pair.
+- Root-level legacy YAML files and account-wide Cloudflare tunnels are intentionally excluded.
+- The remote-only `CREATED` column was removed, and exact hostnames are no longer truncated.
+
+### Fixed
+- `list` no longer calls `cloudflared tunnel list`, including through the startup version check.
+- Each hostname is paired with its own ingress service protocol instead of always using the first service.
+- The test runner no longer leaks its own flags into `run.sh` and accidentally triggers Cloudflare API calls.
+- The Makefile smoke target no longer checks the previously removed `prompt-hook.sh`.
+
+### Tests
+- Added six local-listing tests covering multiple ingress routes, zone isolation, all-zone aggregation, root exclusion, offline operation, and removal of the `jq` dependency.
+
 ## [0.3.1] - 2026-06-08
 
 ### Fixed
