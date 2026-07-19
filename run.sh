@@ -29,13 +29,15 @@ Usage:
 
 Global options:
   --zone NAME     Operate within a specific zone (can appear anywhere)
+  --version       Show the cftunnel version and exit
 
 Commands:
   add           --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--no-dns]
   remove        --name NAME
   start|stop|status|logs   --name NAME
   list          List local hostname routes in the active zone (or all zones if none)
-  cli-update    Update the cloudflared binary to the latest version
+  version       Show the cftunnel version and exit
+  cli-update    Update the cloudflared dependency to the latest version
   zone          Manage persistent default zone and authentication
 
 Zone commands:
@@ -51,6 +53,7 @@ Examples:
   cftunnel start --name api --zone testes.lat
   cftunnel --zone homelaberson.space list
   cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22 --name ssh-config --zone homelaberson.space
+  cftunnel --version
   cftunnel cli-update
 
   # Zone workflow
@@ -96,6 +99,15 @@ set -- "${CLEAN_ARGS[@]}"
 
 cmd="${1:-}"
 shift || true
+
+case "$cmd" in
+version | --version)
+	[[ $# -eq 0 ]] || die "'$cmd' does not accept arguments"
+	print_cftunnel_version
+	exit 0
+	;;
+esac
+
 NAME=""
 TUNNEL_HOSTNAME=""
 TYPE=""

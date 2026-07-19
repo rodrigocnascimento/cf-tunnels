@@ -10,7 +10,7 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 - **Uninstaller:** `uninstall.sh`
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **Docs:** `README.md`, `docs/DOCS.md`, `docs/CLOUDFLARE.md`
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`
 
 ## Project Type
 
@@ -19,7 +19,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (44 tests covering functions, zones, local listing, parser, YAML)
+- Test suite: `cd tests && ./run.sh` (51 tests covering functions, zones, local listing, parser, version reporting, YAML)
 - Test suite with full output: `./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `./run.sh list` or creating a test tunnel.
@@ -40,6 +40,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 - **Quote YAML values** — `hostname` and `service` in the YAML heredoc must be quoted: `"${TUNNEL_HOSTNAME}"` and `"${SERVICE}"`. Unquoted wildcards (e.g., `*.domain.com`) break YAML parsing because `*` is a YAML alias indicator.
 - **`chmod 600` on generated YAMLs** — after writing the heredoc, always `chmod 600 "$YAML"`.
 - **`slugify()`** — transforms names for systemd unit compatibility (lowercase, special chars → hyphens, no leading/trailing hyphens). Zone directory names use the raw domain; slugify is only for systemd unit names.
+- **Application version** — `cftunnel version` and `cftunnel --version` read the root `VERSION` file. Keep their dispatch before zone loading and dependency checks so they remain offline and side-effect-free.
 
 ## DNS Resolution (3-Tier Fallback)
 
@@ -67,11 +68,12 @@ If no `dig`/`host`, the `cfargotunnel.com` check is skipped gracefully; DNS stil
 - `--persist` — combined with `--zone`, saves it as the default persistent zone.
 - `zone login` — authenticates with Cloudflare and saves `cert.pem` to the active zone directory.
 - `cli-update` — self-updates the `cloudflared` binary; skips version check.
+- `version` / `--version` — reports the cftunnel application version from `VERSION`; it does not report or update `cloudflared`.
 - `list` — reads hostname routes only from zone YAML files. An active zone scans that zone; no active zone scans all `zones/*/*.yml`. Root-level YAML and the Cloudflare API are not used.
 
 ## Version Check Behavior
 
-`check_cloudflared_version()` runs on **every** command except `cli-update`, `list`, and `zone`. It probes `cloudflared tunnel list`, filters the "outdated" JSON warning via a wrapper function, and interactively prompts to update if outdated. `list` is exempt so it remains fully local and offline-capable.
+`check_cloudflared_version()` runs on **every** command except `cli-update`, `list`, `version`, `--version`, and `zone`. It probes `cloudflared tunnel list`, filters the "outdated" JSON warning via a wrapper function, and interactively prompts to update if outdated. `list` and version reporting are exempt so they remain fully local and offline-capable.
 
 ## Security Hardening in Systemd Template
 

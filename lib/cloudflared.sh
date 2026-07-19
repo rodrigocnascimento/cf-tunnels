@@ -65,7 +65,7 @@ update_cloudflared() {
 
 check_cloudflared_version() {
 	case "${cmd:-}" in
-	"" | cli-update | list | zone)
+	"" | --version | cli-update | list | version | zone)
 		return 0
 		;;
 	esac

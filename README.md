@@ -251,7 +251,8 @@ cftunnel remove        # Remove a tunnel
 | `logs` | View logs in real-time | `cftunnel logs --name my-tunnel` |
 | `list` | List local hostname routes in the active zone, or all local zones if none is active | `cftunnel list` |
 | `zone` | Manage default/persistent zone and authentication | `cftunnel zone use homelaberson.space` |
-| `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
+| `version` | Print the cftunnel application version | `cftunnel version` |
+| `cli-update` | Update the cloudflared dependency | `cftunnel cli-update` |
 
 ### Zone Commands
 
@@ -266,8 +267,18 @@ cftunnel remove        # Remove a tunnel
 
 | Flag | Description | Example |
 |------|-------------|---------|
+| `--version` | Print the cftunnel application version and exit | `cftunnel --version` |
 | `--zone <name>` | Operate within a specific zone (can appear anywhere) | `cftunnel --zone testes.lat add ...` |
 | `--persist` | Save `--zone` as the new default | `cftunnel --zone testes.lat --persist` |
+
+Both version forms print the value from the installed `VERSION` file and do
+not require a configured zone, Cloudflare credentials, `cloudflared`, or
+network access:
+
+```text
+$ cftunnel --version
+cftunnel 0.3.2
+```
 
 ### Flags for `add`
 

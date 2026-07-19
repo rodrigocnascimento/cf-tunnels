@@ -231,7 +231,8 @@ cf-tunnels/                          # Project root
 | `logs` | View logs | `cftunnel logs --name my-tunnel` |
 | `list` | List local hostname routes in the active zone, or all local zones if none is active | `cftunnel list` |
 | `zone` | Manage persistent default zone and authentication | `cftunnel zone use homelaberson.space` |
-| `cli-update` | Update cloudflared binary | `cftunnel cli-update` |
+| `version` | Print the cftunnel application version | `cftunnel version` |
+| `cli-update` | Update the cloudflared dependency | `cftunnel cli-update` |
 
 ### Zone Commands
 
@@ -246,8 +247,18 @@ cf-tunnels/                          # Project root
 
 | Flag | Description | Example |
 |------|-------------|---------|
+| `--version` | Print the cftunnel application version and exit | `cftunnel --version` |
 | `--zone <name>` | Operate within a specific zone (can appear anywhere) | `cftunnel --zone testes.lat add ...` |
 | `--persist` | Save `--zone` as the new default | `cftunnel --zone testes.lat --persist` |
+
+`cftunnel version` and `cftunnel --version` are equivalent. They read the
+installed `VERSION` file and do not require a configured zone, Cloudflare
+credentials, `cloudflared`, or network access:
+
+```text
+$ cftunnel version
+cftunnel 0.3.2
+```
 
 ### Flags for `add`
 
