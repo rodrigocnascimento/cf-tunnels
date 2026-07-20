@@ -1,9 +1,9 @@
 # Technical Design Document — CFTUNNEL-007
 
 > **Issue:** CFTUNNEL-007
-> **Title:** Safe Zone Registration and Certificate Binding
+> **Title:** Safe Zone Registration and Credential Binding
 > **Version:** 0.4.0 → 0.5.0
-> **Status:** Proposed — design decisions resolved; awaiting implementation approval
+> **Status:** Implemented — acceptance criteria verified
 > **Date:** 2026-07-18
 > **Updated:** 2026-07-19
 > **Author:** Rodrigo Nascimento
@@ -19,7 +19,7 @@
 5. [CLI Contract](#cli-contract)
 6. [Zone Name Contract](#zone-name-contract)
 7. [Registration Architecture](#registration-architecture)
-8. [Certificate Binding Architecture](#certificate-binding-architecture)
+8. [Credential Binding Architecture](#credential-binding-architecture)
 9. [Implementation Proposal](#implementation-proposal)
 10. [Test-Driven Delivery Plan](#test-driven-delivery-plan)
 11. [Documentation and Release Plan](#documentation-and-release-plan)
@@ -33,20 +33,22 @@
 
 ## Overview
 
-Make zone registration match the documented CLI contract and bind each
-zone-specific `cert.pem` to the zone selected by the user.
+Make zone registration match the documented CLI contract and safely associate
+each zone-specific `cert.pem` management token with the selected local zone.
 
 The feature has two distinct responsibilities:
 
 1. `cftunnel zone use <domain>` safely validates and normalizes a DNS zone,
    creates `~/.cloudflared/zones/<domain>/`, and persists it as the default.
-2. `cftunnel zone login` validates the X.509 certificate produced by
-   `cloudflared tunnel login` before placing it in the active zone directory.
+2. `cftunnel zone login` validates the token-only credential produced by
+   current `cloudflared tunnel login`, verifies that Cloudflare accepts it, and
+   records its fingerprint before placing it in the active zone directory.
 
 These operations do not claim to prove legal ownership of a domain. Cloudflare
 establishes domain control through zone activation, normally by authenticating
 nameserver delegation or a verification record. This CLI verifies only local
-syntax, safe filesystem mapping, and certificate-to-zone binding.
+syntax, safe filesystem mapping, credential freshness, local zone association,
+and hostname containment.
 
 The feature is additive but strengthens previously permissive input handling.
 Following Semantic Versioning, it targets the next minor release, `0.5.0`.
@@ -57,11 +59,13 @@ the eventual changelog promotion, version bump, and annotated tag.
 
 | File | Proposed change |
 |------|-----------------|
-| `lib/zone.sh` | Normalize/validate zones, add explicit path and registration helpers, validate persisted state, and verify certificates before installation |
+| `lib/zone.sh` | Normalize/validate zones, add explicit path and registration helpers, validate persisted state, and bind token credentials through metadata |
+| `lib/cloudflared.sh` | Verify zone credential fingerprints before using zone-specific credentials |
+| `lib/tunnel.sh` | Require add hostnames to equal or be contained by the active zone |
 | `run.sh` | Route every persistent-zone write through the shared registration path |
 | `tests/test_zones.sh` | Add zone syntax, registration, persisted-state, and failure-atomicity tests |
-| `tests/test_zone_certificates.sh` | Add certificate format, validity, exact-match, mismatch, and installation tests |
-| `tests/run.sh` | Register any new certificate test file and update phase execution |
+| `tests/test_zone_credentials.sh` | Add token framing, isolated-login, fingerprint, metadata, and installation tests |
+| `tests/run.sh` | Register any new credential test file and update phase execution |
 | `README.md`, `docs/DOCS.md` | Document the precise local registration and authentication contracts |
 | `docs/SETUP-NEW-DOMAIN.md` | Correct the workflow and distinguish registration, certificate binding, Cloudflare activation, and DNS authorization |
 | `AGENTS.md`, `CHANGELOG.md` | Record security conventions, dependencies, test count, and the unreleased feature |
@@ -95,7 +99,10 @@ The mismatch has user-visible consequences:
   filesystem paths;
 - a tampered `.default_zone` is loaded without validation;
 - `zone login` moves any generated `cert.pem` into the active zone without
-  confirming that the certificate covers that zone.
+  confirming that it was freshly generated, accepted by Cloudflare, or locally
+  fingerprint-bound to that zone.
+- `add --hostname` does not ensure that the hostname equals or is a subdomain
+  of the active zone.
 
 The intended workflow needs one consistent definition of a locally registered
 zone and one explicit boundary between local registration and Cloudflare
@@ -140,7 +147,7 @@ The `--zone` parser calls this validator, but `load_default_zone()` does not.
 Persisted state therefore has a separate, less restrictive path into the global
 `ZONE` variable.
 
-### Existing certificate installation
+### Existing credential installation
 
 The current `zone login` flow is:
 
@@ -156,8 +163,10 @@ mkdir zones/<active-zone>
 move cert.pem without inspecting it
 ```
 
-No check currently confirms that the PEM contains a readable certificate, that
-the certificate is unexpired, or that it was issued for the active zone. The
+Current `cloudflared 2026.7.2` login output contains one `ARGO TUNNEL TOKEN`
+PEM block and no X.509 certificate. No check currently confirms that the token
+is structurally framed, freshly generated, or accepted by Cloudflare. No local
+metadata records which zone was selected when the token was installed. The
 destination permission is also not explicitly reset to `600` after the move.
 
 ### Root causes
@@ -169,8 +178,9 @@ destination permission is also not explicitly reset to `600` after the move.
 | RC-03 | Zone validation checks only for non-empty input | Unsafe or malformed values can reach filesystem paths |
 | RC-04 | Persisted default-zone content bypasses validation | Manual corruption or tampering can reintroduce unsafe values |
 | RC-05 | Registration behavior is duplicated across `zone use`, `--persist`, and interactive persistence | Different entry paths can create different states |
-| RC-06 | `zone login` trusts the existence of `cert.pem` | A stale, malformed, expired, or wrong-zone certificate can be installed |
-| RC-07 | Tests reflect the implementation rather than the documented contract | The missing directory and certificate gap were not detected |
+| RC-06 | `zone login` trusts the existence of `cert.pem` | A stale or malformed credential can be installed without a stable local association |
+| RC-07 | `add` does not compare hostname boundaries with the active zone | An obvious cross-zone hostname can reach DNS routing |
+| RC-08 | Tests reflect the implementation rather than the documented contract | The missing directory and credential gaps were not detected |
 
 ---
 
@@ -181,8 +191,9 @@ The implementation and documentation must distinguish four separate claims.
 | Step | What it proves | What it does not prove |
 |------|----------------|------------------------|
 | `zone use` | The name is syntactically safe and local state was created | The domain exists or belongs to the user |
-| Cloudflare zone activation | Cloudflare authenticated the configured nameserver delegation or verification record | This machine has a valid tunnel certificate |
-| `zone login` certificate validation | The generated certificate is structurally valid, unexpired, and bound to the selected zone | The embedded authorization has not later been revoked |
+| Cloudflare zone activation | Cloudflare authenticated the configured nameserver delegation or verification record | This machine has a valid tunnel credential |
+| `zone login` credential validation | The token was freshly generated, has expected PEM framing, is accepted by Cloudflare, and is locally fingerprint-associated with the selected zone | The token cryptographically contains the zone hostname |
+| `add` hostname containment | The requested hostname equals or is below the active canonical zone | Cloudflare will accept the DNS write |
 | `cftunnel add` DNS route creation | Cloudflare accepted a DNS write using the selected credential | Continued future ownership or tunnel health |
 
 ### Explicit non-goal: ownership claims
@@ -259,17 +270,22 @@ In the browser, select exactly: example.com
 ```
 
 `cftunnel` runs `cloudflared tunnel login` with an isolated temporary home and
-validates the candidate `cert.pem` created there. Only a valid matching
-certificate is installed as:
+validates the candidate `cert.pem` created there. Only a freshly generated,
+well-framed token that Cloudflare accepts is installed as:
 
 ```text
 ~/.cloudflared/zones/example.com/cert.pem  # mode 600
 ```
 
-On malformed, expired, or mismatched input, the command must exit non-zero,
+On missing, malformed, rejected, or stale input, the command must exit non-zero,
 must not replace the destination certificate, and must leave any existing root
 or zone certificate untouched. The temporary login workspace is cleaned after
 success or failure.
+
+Successful installation also writes mode-`600` `zone.json` metadata containing
+the canonical zone, credential type, SHA-256 fingerprint, and authentication
+timestamp. The fingerprint detects later credential swaps or corruption; it is
+a local association, not a cryptographic hostname claim.
 
 ---
 
@@ -414,64 +430,85 @@ inside that directory.
 
 ---
 
-## Certificate Binding Architecture
+## Credential Binding Architecture
 
-### Supported inspection mechanism
+### Supported credential format
 
-The installed `cloudflared` CLI has no supported certificate-inspection
-subcommand. The proposed local validator therefore uses the X.509 portion of
-`cert.pem` through `openssl x509` and never decodes or prints the embedded API
-token or private key.
+The DG-01 compatibility check found that `cloudflared 2026.7.2` produces a
+token-only `cert.pem` containing one `ARGO TUNNEL TOKEN` PEM block and no X.509
+certificate. There is no Subject Alternative Name or hostname to compare.
 
-`openssl` becomes a command-specific dependency of `zone login`, not of local
-commands such as `list`, `zone use`, or `version`.
+The validator therefore checks the supported outer credential contract without
+decoding, printing, or parsing token internals:
 
-### Validation sequence
+- one regular, non-empty, readable file;
+- exactly one begin marker and one matching end marker;
+- non-empty base64-shaped payload lines between those markers;
+- no additional PEM blocks or non-whitespace material;
+- acceptance by a read-only authenticated `cloudflared tunnel list` call.
 
-The certificate login and validation sequence is:
+The authenticated validation call occurs only during `zone login`, which is
+already an online operation. It does not change the local/offline behavior of
+`list`, `zone use`, or `version`, and its remote output is discarded.
 
-1. Create a temporary login home with mode `700`.
+### Login and validation sequence
+
+1. Create a temporary login home with mode `700` below `.cloudflared`.
 2. Run `cloudflared tunnel login` with `HOME` set only for that process.
-3. Require a regular, readable candidate `cert.pem` in the isolated home.
-4. Parse an X.509 certificate with `openssl x509 -noout`.
-5. Reject a certificate that fails `openssl x509 -checkend 0 -noout`.
-6. Confirm hostname coverage with `openssl x509 -checkhost <zone> -noout`.
-7. Extract Subject Alternative Name DNS entries without printing other
-   certificate material.
-8. Require a non-wildcard DNS SAN exactly equal to the canonical zone.
-9. Atomically replace the destination certificate only after all checks pass.
-10. Enforce destination mode `600` and clean the temporary workspace.
+3. Require a newly created candidate `cert.pem` in the isolated home.
+4. Validate the `ARGO TUNNEL TOKEN` PEM framing without decoding its payload.
+5. Ask `cloudflared` to authenticate a read-only tunnel-list request using the
+   candidate, suppressing all remote account output.
+6. Calculate the candidate SHA-256 fingerprint without printing credential
+   contents.
+7. Stage the candidate and `zone.json` metadata inside the destination zone.
+8. Atomically replace the previous credential and metadata as one recoverable
+   transaction.
+9. Enforce mode `600` on both files and clean the temporary workspace.
 
-Coverage and exact identity are intentionally separate. A parent-zone
-certificate containing `*.example.com` can cover `app.example.com`, but that
-wildcard alone must not prove that the selected Cloudflare zone was
-`app.example.com`.
+### Local association and hostname containment
 
-### Exact-match compatibility check
+The token is a Cloudflare management credential rather than a hostname
+certificate. The CLI must not claim that it cryptographically proves the zone
+name selected in the browser.
 
-Before implementation, DG-01 performs a read-only check against a current
-zone-specific certificate. The check prints only Subject Alternative Names and
-must confirm that supported Cloudflare login certificates include a literal
-DNS SAN for the selected zone. It must never print the private key, PEM body, or
-embedded token.
+Instead, cftunnel records a trust-on-first-use local association in `zone.json`:
 
-If an exact SAN is not available, implementation stops for design review rather
-than silently downgrading to wildcard coverage.
+```json
+{
+  "zone": "example.com",
+  "credential_type": "argo_tunnel_token",
+  "certificate_sha256": "<64 lowercase hex characters>",
+  "authenticated_at": "<UTC timestamp>"
+}
+```
 
-Potential alternatives at that point are:
+Before the zone credential is used, cftunnel verifies that the metadata zone is
+canonical and equal to active `ZONE`, and that the current credential hash
+matches the stored fingerprint. Missing or mismatched metadata fails closed
+with guidance to run `cftunnel zone login` again.
 
-- coverage-only validation with an explicit weaker guarantee;
-- a zone-scoped Cloudflare `Zone:Read` API check;
-- a supported `cloudflared` inspection interface if one becomes available.
+For DNS safety, `cftunnel add` also requires `TUNNEL_HOSTNAME` to be either the
+active zone or a real subdomain boundary of it. Wildcard hostnames remain valid:
 
-Parsing undocumented token fields from `cert.pem` is not an approved fallback.
+```text
+example.com        ∈ example.com
+app.example.com    ∈ example.com
+*.example.com      ∈ example.com
+evil-example.com   ∉ example.com
+app.other.com      ∉ example.com
+```
+
+This containment check prevents obvious cross-zone routing but does not replace
+Cloudflare authorization. Successful DNS route creation remains the definitive
+permission check.
 
 ### Credential safety
 
-The validator must never:
+The credential workflow must never:
 
-- print the PEM, private key, embedded token, or full OpenSSL dump;
-- copy a certificate into a zone before validation succeeds;
+- print the PEM body, embedded token, or authenticated account output;
+- copy a credential into a zone before validation succeeds;
 - modify or delete an existing root certificate;
 - overwrite a known-good destination before the replacement is fully
   validated and secured;
@@ -497,8 +534,8 @@ root credential is not an approved fallback.
 ### Existing destination credential
 
 Running `zone login` is an explicit request to refresh authentication. A valid
-new matching certificate may atomically replace an existing zone certificate.
-Until the final rename succeeds, the existing destination must remain usable.
+new token and its metadata may atomically replace the existing zone pair. Until
+the transaction succeeds, the existing destination must remain usable.
 
 ---
 
@@ -548,19 +585,21 @@ expression so each rejection can produce a useful error.
 - Ensure no command can persist a zone name that bypasses validation or lacks a
   corresponding zone directory.
 
-### CP-06: Add certificate inspection helpers
+### CP-06: Add token and metadata helpers
 
 - **File:** `lib/zone.sh`
-- Add focused helpers for X.509 parsing, expiry, hostname coverage, and literal
-  SAN matching.
-- Use `need openssl` only within certificate-dependent operations.
-- Suppress successful OpenSSL output and convert failures into concise cftunnel
-  errors.
+- Validate exactly one `ARGO TUNNEL TOKEN` PEM block without decoding it.
+- Authenticate the candidate through a suppressed read-only cloudflared call.
+- Calculate SHA-256 fingerprints without printing credential contents.
+- Atomically write stable `zone.json` metadata with mode `600`.
+- Verify metadata zone/fingerprint before a zone credential is used.
 
 Proposed high-level interface:
 
 ```bash
-validate_zone_certificate "$cert_src" "$active_zone"
+validate_tunnel_token_file "$candidate"
+install_zone_credential "$candidate" "$active_zone"
+verify_zone_credential_binding "$active_zone" "$cert_path"
 ```
 
 The helper returns `0` without output on success and returns non-zero with a
@@ -573,9 +612,10 @@ non-secret error on failure.
   a process-scoped `HOME`.
 - Read the candidate only from that isolated workspace.
 - Prove that the real root certificate is unchanged.
-- Validate before copying or moving into the zone.
-- Stage the replacement inside the destination directory with mode `600`.
-- Atomically rename it over the destination.
+- Validate and remotely authenticate before copying into the zone.
+- Stage the credential and metadata inside the destination directory with mode
+  `600`.
+- Atomically replace both files with rollback on partial failure.
 - Clean the temporary login workspace on success, login failure, validation
   failure, and interrupted execution.
 - Preserve the previous destination on all earlier failures.
@@ -584,15 +624,24 @@ non-secret error on failure.
 
 - **File:** `lib/zone.sh`
 - Print the exact canonical zone the user must select in Cloudflare.
-- Explain mismatch remediation without printing credentials.
+- Explain token/authentication failure remediation without printing credentials.
 - Ensure a zone selected interactively is passed through validation before it
   forms a path.
 
-### CP-09: Update documentation and operational guidance
+### CP-09: Enforce credential binding and hostname containment
+
+- **Files:** `lib/cloudflared.sh`, `lib/tunnel.sh`, `lib/zone.sh`
+- Verify the zone metadata and credential fingerprint before the wrapper uses a
+  zone-specific `cert.pem`.
+- Require `add --hostname` to equal or end at a dot boundary below active
+  `ZONE`, while preserving wildcard hostnames.
+- Fail before tunnel creation, YAML writes, or DNS operations.
+
+### CP-10: Update documentation and operational guidance
 
 - Correct the new-domain setup flow.
-- Add `openssl` to the `zone login` dependency documentation.
-- Explain the four trust boundaries.
+- Explain token-only credentials, local fingerprint association, hostname
+  containment, and the trust boundaries.
 - Update tests and AGENTS conventions.
 
 ---
@@ -632,32 +681,33 @@ be changed until the proposed tests demonstrate the current failures.
 | `test_zone_unset_preserves_registered_directory` | Clearing selection does not delete zone data |
 | `test_persist_uses_registration_contract` | `--persist` also creates the directory through the shared helper |
 
-### Phase 3: Certificate-validation tests
+### Phase 3: Credential-validation tests
 
-Certificate tests must use temporary generated fixtures or controlled command
+Credential tests must use temporary token fixtures or controlled command
 mocks. They must never read a developer’s real `~/.cloudflared/cert.pem`.
 
 | Test | Expected behavior |
 |------|-------------------|
-| `test_zone_certificate_accepts_exact_san` | A valid unexpired certificate with literal `DNS:example.com` passes |
-| `test_zone_certificate_rejects_malformed_pem` | Non-certificate content fails without leaking it |
-| `test_zone_certificate_rejects_expired_cert` | An expired certificate fails |
-| `test_zone_certificate_rejects_other_zone` | A valid certificate for another zone fails |
-| `test_zone_certificate_rejects_wildcard_only_identity` | `DNS:*.example.com` alone does not identify `app.example.com` as its own zone |
-| `test_zone_login_requires_openssl` | Missing OpenSSL produces a clear dependency error only for login |
+| `test_zone_token_accepts_single_argo_block` | One non-empty, correctly framed token block passes |
+| `test_zone_token_rejects_missing_or_empty_file` | Missing and empty candidates fail without leaks |
+| `test_zone_token_rejects_malformed_framing` | Missing markers, empty payloads, extra blocks, and surrounding material fail |
+| `test_zone_login_authenticates_candidate` | The isolated candidate is passed to a suppressed read-only cloudflared call |
+| `test_zone_login_rejects_remote_auth_failure` | Rejected credentials never reach the destination |
 | `test_zone_login_uses_isolated_home` | The login candidate is created outside the user's real home |
 | `test_zone_login_preserves_preexisting_root_cert` | A real root certificate remains byte-for-byte unchanged |
-| `test_zone_login_mismatch_preserves_destination` | Existing valid destination remains byte-for-byte unchanged |
-| `test_zone_login_installs_matching_cert_0600` | A matching certificate is installed with mode `600` |
+| `test_zone_login_failure_preserves_destination` | Existing credential and metadata remain byte-for-byte unchanged |
+| `test_zone_login_installs_token_and_metadata_0600` | Credential, fingerprint, canonical zone, and permissions are correct |
 | `test_zone_login_replacement_is_atomic` | A failed staged replacement preserves the existing certificate |
 | `test_zone_login_cleans_temporary_workspace` | Success and every failure path remove only the isolated login workspace |
 | `test_zone_login_never_logs_credentials` | Error and success output contain no PEM/token material |
 | `test_zone_login_validates_interactive_selection` | Typed zone names pass through the same validator |
+| `test_zone_binding_detects_swapped_credential` | Fingerprint mismatch fails before cloudflared executes |
+| `test_hostname_containment_accepts_zone_and_subdomains` | Apex, normal subdomains, and wildcard subdomains pass |
+| `test_hostname_containment_rejects_cross_zone_names` | Suffix lookalikes and unrelated zones fail before side effects |
 
-At least one integration test should exercise a real temporary X.509 fixture
-with Subject Alternative Names. Expiry and command-error branches may use a
-mocked `openssl` executable to remain deterministic across supported OpenSSL
-versions.
+The mock cloudflared executable may write a non-secret fixture token to its
+process-scoped home and record invocation arguments. Tests assert that neither
+the fixture payload nor remote list output appears in command output.
 
 ### Phase 4: Regression verification
 
@@ -667,7 +717,7 @@ versions.
 4. Run `cftunnel zone use` with a temporary test home and confirm exact paths.
 5. Confirm an invalid traversal input creates nothing outside the test home.
 6. Confirm local registration succeeds with no network and no `cloudflared`.
-7. Exercise certificate validation only with non-production fixtures.
+7. Exercise credential validation only with non-production fixtures.
 8. Confirm `cftunnel list`, `version`, and existing tunnel YAML behavior remain
    unchanged.
 
@@ -688,9 +738,10 @@ record or print the resulting credential.
 - Clarify that local registration is not ownership verification.
 - Document that Cloudflare `Active` status represents external domain-control
   validation.
-- Document exact-zone certificate checks and `openssl` requirements.
-- Add troubleshooting for mismatched, expired, malformed, and isolated-login
-  certificate failures.
+- Document token framing, read-only authentication, local fingerprint metadata,
+  and hostname-containment guarantees.
+- Add troubleshooting for malformed, rejected, swapped, and isolated-login
+  credential failures.
 - Update README and technical CLI reference.
 - Add the feature under `CHANGELOG.md` → `Unreleased`.
 - Update `AGENTS.md` with canonical-zone, persisted-state, path-safety, and
@@ -719,14 +770,15 @@ The implementation branch must not change `VERSION`. During the release:
 | `ensure_zone_dir` creates the previous global zone | Medium | Medium | Pass the intended zone explicitly |
 | Directory creation succeeds but default is partially written | Low | Medium | Same-directory temporary file and atomic rename |
 | Noncanonical persisted state is encountered | Low | Medium | Fail clearly with manual correction guidance; no legacy migration |
-| Parent wildcard is mistaken for exact zone identity | Medium | High | Require a literal non-wildcard SAN after coverage check |
-| Cloudflare changes the certificate format | Medium | High | DG-01 compatibility gate; fail closed rather than parse token internals |
-| Missing OpenSSL breaks unrelated commands | Low | Medium | Require it only inside `zone login` |
-| Rejected credential leaks through logs | Low | Critical | Never print PEM/OpenSSL dumps; assert output safety |
+| Management token is described as a hostname certificate | Medium | Medium | Document that association is local and not cryptographic |
+| Cloudflare changes the token envelope | Medium | High | Validate only the observed outer PEM contract and fail closed |
+| Credential fingerprint metadata is missing or altered | Medium | High | Fail before cloudflared use and require `zone login` |
+| Rejected credential leaks through logs | Low | Critical | Never print PEM payloads or remote account output; assert output safety |
 | Failed refresh destroys a working zone certificate | Low | High | Validate and stage before atomic replacement |
 | A stale root certificate is mistaken for fresh login output | Medium | High | Generate the candidate under an isolated process-scoped `HOME` |
 | `cloudflared` ignores the isolated `HOME` | Low | High | Compatibility-test the installed version and fail closed; never touch the real root credential |
-| Certificate match is described as domain ownership | Medium | Medium | Document trust boundaries and Cloudflare activation separately |
+| Local credential association is described as domain ownership | Medium | Medium | Document trust boundaries and Cloudflare activation separately |
+| Cross-zone hostname reaches route creation | Medium | High | Enforce exact apex/dot-boundary containment before side effects |
 | New strict validation breaks unconventional local zone names | Medium | Medium | Treat zones as Cloudflare DNS zones; document punycode and out-of-scope aliases |
 
 ---
@@ -742,7 +794,6 @@ The implementation branch must not change `VERSION`. During the release:
 | Automatic Unicode-to-punycode conversion | Would require a new IDNA dependency and policy |
 | Automatically deleting or backing up a root certificate | Credential destruction/recovery requires an explicit separate workflow |
 | A `zone verify` network subcommand | Can be proposed independently after registration and binding are reliable |
-| Validating that every `add --hostname` belongs to the active zone | Related but separate tunnel-input behavior with its own compatibility impact |
 | Migrating or renaming existing noncanonical directories automatically | Canonical-only state is required; correction remains manual |
 | Removing legacy root-level tunnel behavior | Unrelated to safe zone registration |
 | Changing tunnel YAML, DNS fallback, or systemd unit naming | Unrelated operational paths |
@@ -766,24 +817,24 @@ was active. Persisted state remains canonical and requires no legacy migration.
 
 ## Decision Gates
 
-The design decisions below were resolved during review. DG-01 remains a
-read-only compatibility check that must pass before production implementation.
+The design decisions below were resolved during review.
 
-### DG-01: Exact SAN availability
+### DG-01: Token-only credential contract
 
-**Status:** Accepted as a pre-implementation compatibility check.
+**Status:** Resolved after compatibility inspection.
 
-Inspect an existing zone certificate without recording secrets:
+The installed `cloudflared 2026.7.2` credential contains only:
 
-```bash
-openssl x509 -in "$cert" -noout -ext subjectAltName
-openssl x509 -in "$cert" -noout -checkhost "$zone"
+```text
+-----BEGIN ARGO TUNNEL TOKEN-----
+...
+-----END ARGO TUNNEL TOKEN-----
 ```
 
-The first command must show a literal `DNS:<zone>` entry; wildcard coverage
-alone is insufficient. If the X.509 certificate or exact SAN is unavailable,
-pause and revise the certificate-binding contract. Do not parse token internals
-or silently accept wildcard-only identity.
+There is no X.509 certificate or SAN. Validate outer token framing, candidate
+freshness, read-only Cloudflare acceptance, and local SHA-256 association. Do
+not decode or parse token internals and do not claim cryptographic hostname
+binding.
 
 ### DG-02: Legacy normalization
 
@@ -810,8 +861,9 @@ default zone exists ⇒ matching zone directory exists
 **Status:** Resolved — do not refuse new-domain login and do not touch the
 existing root certificate.
 
-Run `cloudflared tunnel login` with a private temporary `HOME`, validate the
-candidate certificate there, and atomically install it into the selected zone.
+Run `cloudflared tunnel login` with a private temporary `HOME`, validate and
+authenticate the candidate token there, and atomically install it with metadata
+into the selected zone.
 Clean only the temporary workspace afterward. If `cloudflared` does not honor
 the isolated home, fail closed and return to design review.
 
@@ -819,33 +871,37 @@ the isolated home, fail closed and return to design review.
 
 ## Acceptance Criteria
 
-- [ ] `cftunnel zone use example.com` creates `~/.cloudflared/zones/example.com/`.
-- [ ] The same command stores exactly `example.com` in `.default_zone` with mode `600`.
-- [ ] Registration is local, offline, idempotent, and does not invoke `cloudflared`.
-- [ ] Case and one terminal root dot normalize to one canonical directory and default value.
-- [ ] Valid apex, delegated-subdomain, and punycode zone names are accepted.
-- [ ] Invalid DNS syntax, path traversal, schemes, ports, wildcards, whitespace, Unicode, and unsafe characters are rejected before writes.
-- [ ] DNS label and total-length boundaries are enforced.
-- [ ] Invalid or multiline `.default_zone` content is rejected before path construction.
-- [ ] Directory-creation failure preserves the previous default.
-- [ ] Default-zone persistence is atomic and cannot leave partial content.
-- [ ] `zone unset` never deletes registered zone data.
-- [ ] All approved persistent-selection paths preserve the default-directory invariant.
-- [ ] `zone login` clearly identifies the exact zone to select in Cloudflare.
-- [ ] `zone login` rejects missing, malformed, expired, wrong-zone, and wildcard-only certificates.
-- [ ] Exact certificate binding uses supported X.509 fields and never parses embedded credential tokens.
-- [ ] `zone login` generates and validates candidates in a private isolated home.
-- [ ] A pre-existing root certificate remains byte-for-byte unchanged on success and failure.
-- [ ] Temporary login state is cleaned without targeting the user's real home or zone data.
-- [ ] A rejected certificate does not replace the existing zone certificate.
-- [ ] A valid matching certificate is atomically installed with mode `600`.
-- [ ] No success or error path prints private keys, PEM bodies, or embedded tokens.
-- [ ] Missing OpenSSL affects only certificate-dependent commands.
-- [ ] Certificate matching is not documented as proof of legal ownership or current Cloudflare zone activation.
-- [ ] New tests fail against `v0.4.0` before production implementation and pass afterward.
-- [ ] `bash -n run.sh install.sh uninstall.sh lib/*.sh tests/*.sh` reports zero syntax errors.
-- [ ] The full existing and new test suite passes.
-- [ ] README, setup guide, technical docs, changelog, and AGENTS guidance are updated.
-- [ ] `VERSION` remains `0.4.0` during feature implementation.
+- [x] `cftunnel zone use example.com` creates `~/.cloudflared/zones/example.com/`.
+- [x] The same command stores exactly `example.com` in `.default_zone` with mode `600`.
+- [x] Registration is local, offline, idempotent, and does not invoke `cloudflared`.
+- [x] Case and one terminal root dot normalize to one canonical directory and default value.
+- [x] Valid apex, delegated-subdomain, and punycode zone names are accepted.
+- [x] Invalid DNS syntax, path traversal, schemes, ports, wildcards, whitespace, Unicode, and unsafe characters are rejected before writes.
+- [x] DNS label and total-length boundaries are enforced.
+- [x] Invalid or multiline `.default_zone` content is rejected before path construction.
+- [x] Directory-creation failure preserves the previous default.
+- [x] Default-zone persistence is atomic and cannot leave partial content.
+- [x] `zone unset` never deletes registered zone data.
+- [x] All approved persistent-selection paths preserve the default-directory invariant.
+- [x] `zone login` clearly identifies the exact zone to select in Cloudflare.
+- [x] `zone login` rejects missing, empty, malformed, extra-block, and remotely rejected token credentials.
+- [x] Token validation checks the outer `ARGO TUNNEL TOKEN` contract without decoding or parsing token internals.
+- [x] The candidate is accepted by a suppressed read-only Cloudflare authentication call before installation.
+- [x] `zone login` generates and validates candidates in a private isolated home.
+- [x] A pre-existing root certificate remains byte-for-byte unchanged on success and failure.
+- [x] Temporary login state is cleaned without targeting the user's real home or zone data.
+- [x] A rejected certificate does not replace the existing zone certificate.
+- [x] A valid token and matching `zone.json` metadata are atomically installed with mode `600`.
+- [x] Zone metadata records the canonical zone, credential type, SHA-256 fingerprint, and authentication timestamp.
+- [x] A missing or mismatched fingerprint fails before the wrapper invokes cloudflared.
+- [x] `add --hostname` accepts the active zone, subdomains, and wildcard subdomains.
+- [x] `add --hostname` rejects unrelated zones and suffix lookalikes before side effects.
+- [x] No success or error path prints private keys, PEM bodies, or embedded tokens.
+- [x] Local token association is not documented as proof of legal ownership or current Cloudflare zone activation.
+- [x] New tests fail against `v0.4.0` before production implementation and pass afterward.
+- [x] `bash -n run.sh install.sh uninstall.sh lib/*.sh tests/*.sh` reports zero syntax errors.
+- [x] The full existing and new test suite passes.
+- [x] README, setup guide, technical docs, changelog, and AGENTS guidance are updated.
+- [x] `VERSION` remains `0.4.0` during feature implementation.
 
 (End of file)
