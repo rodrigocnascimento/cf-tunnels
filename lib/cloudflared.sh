@@ -3,8 +3,9 @@ _CFTUNNEL_CLOUDFLARED_LOADED=1
 
 cloudflared() {
 	local cert_path="$HOME_DIR/.cloudflared/cert.pem"
-	if [[ -n "$ZONE" && -f "$HOME_DIR/.cloudflared/zones/$ZONE/cert.pem" ]]; then
+	if [[ -n "$ZONE" ]]; then
 		cert_path="$HOME_DIR/.cloudflared/zones/$ZONE/cert.pem"
+		verify_zone_credential_binding "$ZONE" "$cert_path" || return 1
 	fi
 	local tmpout rc
 	tmpout=$(mktemp)

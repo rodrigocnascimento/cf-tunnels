@@ -41,10 +41,10 @@ Commands:
   zone          Manage persistent default zone and authentication
 
 Zone commands:
-  zone use <name>     Set a zone as the default (persistent)
+  zone use <name>     Register a zone and set it as the default (persistent)
   zone current        Show the current default zone
   zone unset          Clear the default zone
-  zone login          Authenticate and save cert.pem to the active zone
+  zone login          Authenticate and bind a credential to the active zone
 
   You can also use: cftunnel --zone <name> --persist
 
@@ -115,35 +115,35 @@ SERVICE=""
 NO_DNS=false
 
 if [[ -n "$ZONE" ]]; then
-	ZONE="$(validate_zone_name "$ZONE")"
+	ZONE="$(validate_zone_name "$ZONE")" || exit 1
 fi
 
 # Load default/persistent zone
 if [[ -z "$ZONE" ]]; then
-	DEFAULT="$(load_default_zone)"
+	DEFAULT="$(load_default_zone)" || exit 1
 	if [[ -n "$DEFAULT" ]]; then
 		ZONE="$DEFAULT"
 	fi
 fi
 
-if [[ "$cmd" != "zone" ]]; then
-	if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
-		current_default="$(load_default_zone)"
-		if [[ "$ZONE" != "$current_default" ]]; then
-			save_default_zone "$ZONE"
-			echo "[+] Zone '$ZONE' is now the default (persistent)."
-		fi
+if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
+	current_default="$(load_default_zone)" || exit 1
+	ZONE="$(register_zone "$ZONE")" || exit 1
+	if [[ "$ZONE" != "$current_default" ]]; then
+		echo "[+] Zone '$ZONE' is now the default (persistent)."
 	fi
+fi
 
+if [[ "$cmd" != "zone" ]]; then
 	if [[ -n "$ZONE" && "$PERSIST_ZONE" != true ]]; then
-		current_default="$(load_default_zone)"
+		current_default="$(load_default_zone)" || exit 1
 		if [[ -n "$current_default" && "$ZONE" != "$current_default" ]]; then
 			echo
 			echo ">>> You are using zone '$ZONE', but your current default is '$current_default'."
 			read -p "Do you want to make '$ZONE' your new default zone? [y/N] " -n 1 -r || true
 			echo
 			if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-				save_default_zone "$ZONE"
+				ZONE="$(register_zone "$ZONE")" || exit 1
 				echo "[+] Default zone changed to '$ZONE'."
 			fi
 		fi
