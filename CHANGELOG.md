@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added safe canonical zone registration shared by `zone use`, `--persist`, and the interactive default-change flow. Registration creates the matching zone directory, writes `.default_zone` atomically with mode `600`, and remains fully local and offline.
+- Added token-only zone authentication in an isolated mode-`700` login home, including strict `ARGO TUNNEL TOKEN` framing, a suppressed read-only Cloudflare authentication probe, SHA-256 fingerprinting, and mode-`600` `zone.json` binding metadata.
+- Added active-zone hostname containment for the apex, valid DNS subdomains, and complete leftmost-label wildcards.
+
+### Changed
+- Zone input is now lowercase canonicalized, permits one terminal DNS root dot, and enforces DNS label/path-safety boundaries. Persisted default state is revalidated and must already be canonical.
+- Zone credential refresh now stages `cert.pem` and `zone.json` as a recoverable transaction with checked rollback and signal cleanup. Existing destination files remain recoverable until the secured replacement succeeds.
+- The zone credential wrapper now fails closed for missing, malformed, unsupported, or fingerprint-mismatched credential bindings instead of falling back to an unrelated root credential.
+
+### Security
+- Zone login verifies that the real root `~/.cloudflared/cert.pem` was not created, removed, or changed after every login result, including failures and interrupted login processes.
+- Credential/token contents and authenticated account output are suppressed on success and error paths; temporary and transaction artifacts are cleaned after handled outcomes.
+- Cross-zone, suffix-lookalike, and malformed hostnames are rejected before sudo, tunnel creation, YAML writes, or DNS activity.
+- Zone removal now validates credential binding before service changes and preserves local YAML/UUID files whenever remote tunnel deletion fails.
+
+### Tests
+- Expanded the suite to 88 tests, including deterministic DNS fixtures; registration write/chmod/rename failures; isolated-login cleanup; root-integrity checks during normal and interrupted login; token framing and secrecy; credential staging, rename, permission, rollback, and interruption faults; binding and fail-closed removal failures; interactive selection; and strict hostname containment.
+
+### Documentation
+- Documented local registration versus Cloudflare `Active` ownership checks, token-only credentials, local fingerprint association, trust boundaries, hostname containment, remediation, and the supported headless login workflow.
+
 ## [0.4.0] - 2026-07-18
 
 ### Added

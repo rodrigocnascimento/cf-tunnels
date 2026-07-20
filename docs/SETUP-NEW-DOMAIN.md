@@ -86,8 +86,8 @@ You can also check via Cloudflare's dashboard — the site status changes from
 
 ## Step 4 — Register the zone with cftunnel
 
-This creates the isolated zone directory and optionally sets it as the
-persistent default:
+This validates and canonicalizes the name, creates the isolated zone directory,
+and sets it as the persistent default:
 
 ```bash
 cftunnel zone use mynewdomain.com
@@ -96,11 +96,15 @@ cftunnel zone use mynewdomain.com
 Output:
 
 ```
-✅ Default zone set to 'mynewdomain.com'.
+✅ Zone 'mynewdomain.com' registered and set as default.
 ```
 
 This creates `~/.cloudflared/zones/mynewdomain.com/` and saves
-`mynewdomain.com` into `~/.cloudflared/.default_zone`.
+`mynewdomain.com` into the mode-`600`
+`~/.cloudflared/.default_zone`. Registration is local and offline: it does not
+contact Cloudflare or DNS and does not prove ownership of the domain.
+Cloudflare's **Active** status from Steps 2–3 is the external domain-control
+check.
 
 From now on, every `cftunnel` command will use this zone automatically
 (unless overridden with `--zone <other-domain>`).
@@ -117,8 +121,8 @@ cftunnel --zone mynewdomain.com <command>
 
 ## Step 5 — Authenticate the zone
 
-`zone login` authenticates with Cloudflare and stores the certificate inside
-the zone's isolated directory instead of the shared root:
+`zone login` authenticates with Cloudflare and stores a validated token
+credential plus local binding metadata inside the zone's isolated directory:
 
 ```bash
 cftunnel zone login
@@ -126,36 +130,37 @@ cftunnel zone login
 
 This:
 
-1. Opens a browser for Cloudflare OAuth
-2. Generates `~/.cloudflared/cert.pem`
-3. Moves it to `~/.cloudflared/zones/mynewdomain.com/cert.pem`
+1. Prints the exact canonical zone you must select in the browser.
+2. Creates a private temporary login home rather than using your real home.
+3. Opens the Cloudflare browser login in that isolated home.
+4. Requires one well-framed token-only `ARGO TUNNEL TOKEN` PEM block.
+5. Verifies that Cloudflare accepts it with a suppressed read-only request.
+6. Installs `cert.pem` and matching `zone.json` fingerprint metadata as a
+   recoverable transaction, both with mode `600`.
+7. Cleans the isolated login home and confirms that any root
+   `~/.cloudflared/cert.pem` remained byte-for-byte unchanged.
 
 Output:
 
 ```
-Authenticating with Cloudflare...
-✅ Certificate saved to zones/mynewdomain.com/cert.pem
+Authenticating zone 'mynewdomain.com' with Cloudflare.
+In the browser, select exactly: mynewdomain.com
+✅ Credential saved to zones/mynewdomain.com/cert.pem
 ```
 
-> Each zone gets its own `cert.pem`. Tunnels under this zone use this
-> certificate automatically — the `cloudflared()` wrapper in the script
-> injects `--origincert` pointing to the zone-specific cert.
+> Each authenticated zone needs both `cert.pem` and `zone.json`. Before using
+> the credential, cftunnel confirms that the metadata names the active
+> canonical zone and that its SHA-256 fingerprint matches the token. This is a
+> local integrity association; the token does not cryptographically prove the
+> zone hostname or domain ownership.
 
 ### Headless servers (SSH-only)
 
-If you can't open a browser on the server, authenticate on a machine that
-has one, then copy `cert.pem`:
-
-```bash
-# On the machine with a browser:
-cloudflared tunnel login
-scp ~/.cloudflared/cert.pem your-server:~/
-
-# On the server:
-mkdir -p ~/.cloudflared/zones/mynewdomain.com/
-mv ~/cert.pem ~/.cloudflared/zones/mynewdomain.com/cert.pem
-chmod 600 ~/.cloudflared/zones/mynewdomain.com/cert.pem
-```
+The supported workflow is still `cftunnel zone login` on the server. Follow
+the URL printed by `cloudflared` in a browser on another machine and complete
+the authorization there. Do not manually copy only `cert.pem`: cftunnel also
+requires locally generated `zone.json` metadata after its framing and
+read-only authentication checks, so a certificate-only copy fails closed.
 
 ---
 
@@ -163,6 +168,11 @@ chmod 600 ~/.cloudflared/zones/mynewdomain.com/cert.pem
 
 Now you create tunnels under the new domain. Each tunnel exposes one subdomain
 pointing to a local service.
+
+The hostname must equal the active zone or be a valid DNS subdomain. A wildcard
+is allowed only as the complete leftmost label (`*.mynewdomain.com`). Names such
+as `evil-mynewdomain.com`, `foo*.mynewdomain.com`, and
+`a..mynewdomain.com` are rejected before tunnel, file, sudo, or DNS changes.
 
 ### HTTP tunnel (web app / API)
 
@@ -312,8 +322,14 @@ mynewdomain.com/
 
 | Problem | Likely cause | Fix |
 |---------|-------------|-----|
-| `cert.pem not found` | Zone not authenticated | Run `cftunnel --zone mynewdomain.com zone login` |
-| `zone not found` | No tunnel yet | Run any `--zone mynewdomain.com` command to create the directory |
+| Token credential is missing or malformed | Login did not produce the supported token envelope | Retry `cftunnel --zone mynewdomain.com zone login`; do not edit or paste token contents |
+| Cloudflare rejects the credential | Wrong account/zone selection or expired authorization | Retry login and select exactly the printed canonical zone |
+| `zone.json` is missing or names another zone | Only `cert.pem` was copied, or files were swapped | Remove neither file manually; rerun `cftunnel --zone mynewdomain.com zone login` to replace the pair |
+| Credential fingerprint does not match | `cert.pem` changed or belongs to another local zone | Rerun zone login for the selected zone |
+| Root credential integrity error | `cloudflared` wrote outside the isolated login home | Confirm the installed `cloudflared` version honors `HOME`; do not move or delete the root credential as a workaround |
+| Isolated login cleanup error | Temporary workspace could not be removed | Inspect only `~/.cloudflared/.zone-login.*`; never delete the real home or zone directory blindly |
+| Hostname does not belong to zone | Cross-zone, suffix-lookalike, or malformed hostname | Use the apex, a valid subdomain, or a complete leftmost wildcard under the active zone |
+| Zone directory missing | Zone was not registered | Run `cftunnel zone use mynewdomain.com` or `cftunnel --zone mynewdomain.com --persist` |
 | `DNS record already exists` | CNAME from previous attempt | Delete the record in Cloudflare dashboard and retry |
 | `cloudflared tunnel list` shows outdated warning | Outdated binary | Run `cftunnel cli-update` |
 | Domain still **Pending** in dashboard | Nameservers not propagated | Wait — check with `dig @1.1.1.1 +short mynewdomain.com` |
@@ -351,7 +367,7 @@ dig @1.1.1.1 +short app.mynewdomain.com
 | Command | Purpose |
 |---------|---------|
 | `cftunnel zone use <domain>` | Register a zone (creates directory + sets default) |
-| `cftunnel zone login` | Authenticate and store cert inside the current zone |
+| `cftunnel zone login` | Validate and install the current zone's credential and binding metadata |
 | `cftunnel zone current` | Show the active default zone |
 | `cftunnel zone unset` | Clear the default zone |
 | `cftunnel --zone <domain> add …` | Add tunnel under a non-default zone |
