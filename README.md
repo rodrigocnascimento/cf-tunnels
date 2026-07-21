@@ -314,7 +314,7 @@ network access:
 
 ```text
 $ cftunnel --version
-cftunnel 0.5.0
+cftunnel 0.5.1
 ```
 
 ### Flags for `add`

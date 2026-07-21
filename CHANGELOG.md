@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-21
+
 ### Documentation
 - Standardized user-facing CLI examples and installer guidance on the installed `cftunnel` command. Direct `run.sh` references remain only where documentation intentionally discusses the entry-point file or the separate test runner.
 
