@@ -125,3 +125,27 @@ test_parser_skips_version_check_for_list() {
 		false
 	fi
 }
+
+test_add_rejects_cross_zone_hostname_before_probe_or_persistence() {
+	local fake_bin="$HOME/fake-bin"
+	local probe_log="$HOME/cloudflared-probe.log"
+	mkdir -p "$fake_bin"
+	printf '%s\n' \
+		'#!/usr/bin/env bash' \
+		'if [[ "${1:-}" == "passwd" ]]; then' \
+		'  printf "%s:x:1000:1000::%s:/bin/bash\\n" "$2" "$HOME"' \
+		'fi' > "$fake_bin/getent"
+	printf '%s\n' \
+		'#!/usr/bin/env bash' \
+		'printf "%s\\n" "$*" >> "$CFTUNNEL_PROBE_LOG"' > "$fake_bin/cloudflared"
+	chmod +x "$fake_bin/getent" "$fake_bin/cloudflared"
+
+	local output rc=0
+	output="$(PATH="$fake_bin:$PATH" RUN_USER=cftunnel-test USER=cftunnel-test CFTUNNEL_PROBE_LOG="$probe_log" \
+		bash "$PROJECT_DIR/run.sh" --zone example.com --persist add \
+		--hostname app.other.com --type http --service http://localhost:8080 2>&1)" || rc=$?
+	assert_ne "0" "$rc" "cross-zone add should fail"
+	assert_contains "$output" "does not belong to zone 'example.com'" "pre-probe containment error"
+	assert_file_not_exists "$probe_log" "version probe must not run"
+	assert_file_not_exists "$HOME/.cloudflared/.default_zone" "invalid add must not persist the zone"
+}

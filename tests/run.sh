@@ -85,6 +85,7 @@ run_test() {
 TEST_FILES=(
 	"$SCRIPT_DIR/test_functions.sh"
 	"$SCRIPT_DIR/test_zones.sh"
+	"$SCRIPT_DIR/test_zone_credentials.sh"
 	"$SCRIPT_DIR/test_list.sh"
 	"$SCRIPT_DIR/test_parser.sh"
 	"$SCRIPT_DIR/test_version.sh"
@@ -134,7 +135,7 @@ echo
 echo "Phase 3: Integration Tests"
 echo "──────────────────────────"
 
-for file in test_zones.sh test_list.sh test_yaml.sh; do
+for file in test_zones.sh test_zone_credentials.sh test_list.sh test_yaml.sh; do
 	file_path="$SCRIPT_DIR/$file"
 	echo "  → $file"
 	for func in $(grep -oE '^test_[a-zA-Z0-9_]+' "$file_path"); do

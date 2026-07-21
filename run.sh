@@ -41,10 +41,10 @@ Commands:
   zone          Manage persistent default zone and authentication
 
 Zone commands:
-  zone use <name>     Set a zone as the default (persistent)
+  zone use <name>     Register a zone and set it as the default (persistent)
   zone current        Show the current default zone
   zone unset          Clear the default zone
-  zone login          Authenticate and save cert.pem to the active zone
+  zone login          Authenticate and bind a credential to the active zone
 
   You can also use: cftunnel --zone <name> --persist
 
@@ -114,36 +114,63 @@ TYPE=""
 SERVICE=""
 NO_DNS=false
 
+parse_add_args() {
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--hostname | --type | --service | --name)
+			[[ $# -ge 2 ]] || die "$1 requires a value"
+			case "$1" in
+			--hostname) TUNNEL_HOSTNAME="$2" ;;
+			--type) TYPE="$2" ;;
+			--service) SERVICE="$2" ;;
+			--name) NAME="$2" ;;
+			esac
+			shift 2
+			;;
+		--no-dns) NO_DNS=true; shift ;;
+		-h | --help) print_usage; exit 0 ;;
+		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
+		esac
+	done
+}
+
 if [[ -n "$ZONE" ]]; then
-	ZONE="$(validate_zone_name "$ZONE")"
+	ZONE="$(validate_zone_name "$ZONE")" || exit 1
 fi
 
 # Load default/persistent zone
 if [[ -z "$ZONE" ]]; then
-	DEFAULT="$(load_default_zone)"
+	DEFAULT="$(load_default_zone)" || exit 1
 	if [[ -n "$DEFAULT" ]]; then
 		ZONE="$DEFAULT"
 	fi
 fi
 
-if [[ "$cmd" != "zone" ]]; then
-	if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
-		current_default="$(load_default_zone)"
-		if [[ "$ZONE" != "$current_default" ]]; then
-			save_default_zone "$ZONE"
-			echo "[+] Zone '$ZONE' is now the default (persistent)."
-		fi
-	fi
+# Parse and validate add input before persistence prompts, version probes, or
+# any other external/privileged side effect.
+if [[ "$cmd" == "add" ]]; then
+	parse_add_args "$@"
+	validate_add_input
+fi
 
+if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
+	current_default="$(load_default_zone)" || exit 1
+	ZONE="$(register_zone "$ZONE")" || exit 1
+	if [[ "$ZONE" != "$current_default" ]]; then
+		echo "[+] Zone '$ZONE' is now the default (persistent)."
+	fi
+fi
+
+if [[ "$cmd" != "zone" ]]; then
 	if [[ -n "$ZONE" && "$PERSIST_ZONE" != true ]]; then
-		current_default="$(load_default_zone)"
+		current_default="$(load_default_zone)" || exit 1
 		if [[ -n "$current_default" && "$ZONE" != "$current_default" ]]; then
 			echo
 			echo ">>> You are using zone '$ZONE', but your current default is '$current_default'."
 			read -p "Do you want to make '$ZONE' your new default zone? [y/N] " -n 1 -r || true
 			echo
 			if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-				save_default_zone "$ZONE"
+				ZONE="$(register_zone "$ZONE")" || exit 1
 				echo "[+] Default zone changed to '$ZONE'."
 			fi
 		fi
@@ -163,17 +190,6 @@ fi
 
 case "${cmd:-}" in
 add)
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-		--hostname) TUNNEL_HOSTNAME="${2:-}"; shift 2 ;;
-		--type)     TYPE="${2:-}"; shift 2 ;;
-		--service)  SERVICE="${2:-}"; shift 2 ;;
-		--name) NAME="${2:-}"; shift 2 ;;
-		--no-dns)   NO_DNS=true; shift ;;
-		-h | --help) print_usage; exit 0 ;;
-		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
-		esac
-	done
 	op_add
 	;;
 remove)

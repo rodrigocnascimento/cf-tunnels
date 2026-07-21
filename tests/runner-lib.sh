@@ -34,6 +34,16 @@ assert_contains() {
 	fi
 }
 
+assert_not_contains() {
+	local haystack="$1"
+	local needle="$2"
+	local msg="${3:-}"
+	if [[ "$haystack" == *"$needle"* ]]; then
+		echo "ASSERT FAIL${msg:+ [$msg]}: string unexpectedly contains '$needle'" >&2
+		exit 1
+	fi
+}
+
 assert_file_exists() {
 	local path="$1"
 	local msg="${2:-}"
@@ -48,6 +58,24 @@ assert_file_not_exists() {
 	local msg="${2:-}"
 	if [[ -f "$path" ]]; then
 		echo "ASSERT FAIL${msg:+ [$msg]}: file exists but should not: $path" >&2
+		exit 1
+	fi
+}
+
+assert_dir_exists() {
+	local path="$1"
+	local msg="${2:-}"
+	if [[ ! -d "$path" ]]; then
+		echo "ASSERT FAIL${msg:+ [$msg]}: directory does not exist: $path" >&2
+		exit 1
+	fi
+}
+
+assert_dir_not_exists() {
+	local path="$1"
+	local msg="${2:-}"
+	if [[ -d "$path" ]]; then
+		echo "ASSERT FAIL${msg:+ [$msg]}: directory exists but should not: $path" >&2
 		exit 1
 	fi
 }

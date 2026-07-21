@@ -29,10 +29,13 @@ json_path_for_uuid() {
 	echo "${dir}/${1}.json"
 }
 
-validate_flags_add() {
+validate_add_input() {
 	[[ -n "${TUNNEL_HOSTNAME:-}" ]] || die "--hostname is required"
 	[[ -n "${TYPE:-}" ]] || die "--type ssh|http|tcp is required"
 	[[ -n "${SERVICE:-}" ]] || die "--service is required (e.g.: ssh://localhost:22, http://localhost:4000, tcp://localhost:6379)"
+	if [[ -n "${ZONE:-}" ]] && ! hostname_belongs_to_zone "$TUNNEL_HOSTNAME" "$ZONE"; then
+		die "hostname '$TUNNEL_HOSTNAME' does not belong to zone '$ZONE'"
+	fi
 	case "$TYPE" in
 	ssh | http | tcp) : ;;
 	*) die "--type invalid: $TYPE (use ssh|http|tcp)" ;;
@@ -49,6 +52,10 @@ validate_flags_add() {
 		[[ "$SERVICE" == tcp://* ]] || die "--type tcp requires --service tcp://... (e.g.: tcp://localhost:6379)"
 		;;
 	esac
+}
+
+validate_flags_add() {
+	validate_add_input
 
 	if [[ $EUID -ne 0 ]]; then
 		sudo -v || die "needs sudo permission"
@@ -56,11 +63,11 @@ validate_flags_add() {
 }
 
 op_add() {
+	validate_flags_add
+
 	need cloudflared
 	need jq
 	ensure_template
-
-	validate_flags_add
 
 	local BASE_DOMAIN
 	BASE_DOMAIN="$(echo "$TUNNEL_HOSTNAME" | rev | cut -d. -f1-2 | rev)"
@@ -253,6 +260,10 @@ op_remove() {
 	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
 	[[ -n "$NAME" ]] || die "tunnel name is empty after sanitization"
+	if [[ -n "${ZONE:-}" ]]; then
+		local zone_credential="$HOME_DIR/.cloudflared/zones/$ZONE/cert.pem"
+		verify_zone_credential_binding "$ZONE" "$zone_credential" || die "zone credential binding is invalid; removal was not started"
+	fi
 
 	if [[ $EUID -ne 0 ]]; then
 		sudo -v || die "needs sudo permission"
@@ -287,7 +298,9 @@ op_remove() {
 	fi
 
 	echo "[+] removing tunnel '${NAME}' (if it exists)"
-	cloudflared tunnel delete "$NAME" >/dev/null 2>&1 || true
+	if ! cloudflared tunnel delete "$NAME" >/dev/null 2>&1; then
+		die "Cloudflare tunnel deletion failed; local tunnel files were preserved"
+	fi
 
 	echo "[+] cleaning up local files"
 	rm -f "$YAML"
