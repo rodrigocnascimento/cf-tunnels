@@ -229,6 +229,77 @@ write_zone_credential_metadata() {
 		'}' > "$path"
 }
 
+cleanup_zone_credential_transaction_artifacts() {
+	local dir="${1:-}"
+	local artifact
+	for artifact in \
+		"$dir"/.credential-transaction.stage.* \
+		"$dir"/.credential-transaction.done.* \
+		"$dir"/.cert.pem.commit.* \
+		"$dir"/.zone.json.commit.* \
+		"$dir"/.cert.pem.recover.* \
+		"$dir"/.zone.json.recover.*; do
+		[[ -e "$artifact" || -L "$artifact" ]] || continue
+		rm -rf -- "$artifact" || return 1
+	done
+}
+
+restore_zone_credential_transaction_file() {
+	local transaction="${1:-}"
+	local marker="${2:-}"
+	local backup_name="${3:-}"
+	local destination="${4:-}"
+	local temporary_pattern="${5:-}"
+
+	if [[ -e "$transaction/$marker" || -L "$transaction/$marker" ]]; then
+		[[ -f "$transaction/$marker" && ! -L "$transaction/$marker" ]] || return 1
+		local backup="$transaction/$backup_name"
+		[[ -f "$backup" && ! -L "$backup" ]] || return 1
+		local temporary
+		temporary="$(mktemp "$temporary_pattern")" || return 1
+		if ! cp -- "$backup" "$temporary" || ! chmod 600 "$temporary" || ! mv -f -- "$temporary" "$destination"; then
+			rm -f -- "$temporary" || true
+			return 1
+		fi
+	else
+		rm -f -- "$destination" || return 1
+	fi
+}
+
+recover_zone_credential_transaction() {
+	local zone_name="${1:-}"
+	local dir transaction completed
+	dir="$(zone_dir_for "$zone_name")"
+	transaction="$dir/.credential-transaction"
+
+	cleanup_zone_credential_transaction_artifacts "$dir" || {
+		echo "error: could not clean stale credential transaction artifacts" >&2
+		return 1
+	}
+	[[ -e "$transaction" || -L "$transaction" ]] || return 0
+	[[ -d "$transaction" && ! -L "$transaction" ]] || {
+		echo "error: invalid zone credential transaction state" >&2
+		return 1
+	}
+
+	if ! restore_zone_credential_transaction_file "$transaction" had-cert old-cert "$dir/cert.pem" "$dir/.cert.pem.recover.XXXXXX" ||
+		! restore_zone_credential_transaction_file "$transaction" had-metadata old-metadata "$dir/zone.json" "$dir/.zone.json.recover.XXXXXX"; then
+		echo "error: interrupted zone credential transaction could not be recovered" >&2
+		return 1
+	fi
+
+	completed="$dir/.credential-transaction.done.$$.${RANDOM}"
+	if ! mv -T -- "$transaction" "$completed"; then
+		echo "error: recovered credential transaction could not be finalized" >&2
+		return 1
+	fi
+	rm -rf -- "$completed" || {
+		echo "error: recovered credential transaction artifacts could not be removed" >&2
+		return 1
+	}
+	echo "[=] Recovered an interrupted credential replacement for zone '$zone_name'." >&2
+}
+
 install_zone_credential() {
 	local candidate="${1:-}"
 	local zone_name="${2:-}"
@@ -250,47 +321,21 @@ install_zone_credential() {
 	authenticated_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 	cert="$dir/cert.pem"
 	metadata="$dir/zone.json"
+	recover_zone_credential_transaction "$canonical" || return 1
 
 	(
-		local staged_cert="" staged_metadata="" backup_cert="" backup_metadata=""
-		local had_cert=false had_metadata=false rollback_required=false
+		local staging="" transaction="$dir/.credential-transaction" completed=""
+		local transaction_published=false
 
 		_finish_zone_credential_install() {
 			local rc=$?
 			local rollback_ok=true cleanup_ok=true
 			trap - EXIT HUP INT TERM
 
-			if [[ "$rollback_required" == true ]]; then
-				if [[ "$had_cert" == true ]]; then
-					if [[ -n "$backup_cert" && -f "$backup_cert" ]]; then
-						if ! mv -f -- "$backup_cert" "$cert"; then
-							echo "error: credential rollback failed while restoring cert.pem" >&2
-							rollback_ok=false
-						fi
-					else
-						echo "error: credential rollback failed because the cert.pem backup is unavailable" >&2
-						rollback_ok=false
-					fi
-				elif ! rm -f -- "$cert"; then
-					echo "error: credential rollback failed while removing the new cert.pem" >&2
+			if [[ "$transaction_published" == true ]]; then
+				if ! recover_zone_credential_transaction "$canonical"; then
 					rollback_ok=false
 				fi
-
-				if [[ "$had_metadata" == true ]]; then
-					if [[ -n "$backup_metadata" && -f "$backup_metadata" ]]; then
-						if ! mv -f -- "$backup_metadata" "$metadata"; then
-							echo "error: credential rollback failed while restoring zone.json" >&2
-							rollback_ok=false
-						fi
-					else
-						echo "error: credential rollback failed because the zone.json backup is unavailable" >&2
-						rollback_ok=false
-					fi
-				elif ! rm -f -- "$metadata"; then
-					echo "error: credential rollback failed while removing the new zone.json" >&2
-					rollback_ok=false
-				fi
-
 				if [[ "$rollback_ok" == true ]]; then
 					echo "error: credential installation failed; previous zone credential state restored" >&2
 				else
@@ -299,14 +344,10 @@ install_zone_credential() {
 				rc=1
 			fi
 
-			local artifact
-			for artifact in "$staged_cert" "$staged_metadata" "$backup_cert" "$backup_metadata"; do
-				[[ -n "$artifact" && -e "$artifact" ]] || continue
-				if ! rm -f -- "$artifact"; then
-					echo "error: could not remove credential transaction artifact: $artifact" >&2
-					cleanup_ok=false
-				fi
-			done
+			if [[ -n "$staging" && ( -e "$staging" || -L "$staging" ) ]] && ! rm -rf -- "$staging"; then
+				echo "error: could not remove credential transaction artifact: $staging" >&2
+				cleanup_ok=false
+			fi
 			[[ "$cleanup_ok" == true ]] || rc=1
 			exit "$rc"
 		}
@@ -314,20 +355,17 @@ install_zone_credential() {
 		trap _finish_zone_credential_install EXIT
 		trap 'exit 130' HUP INT TERM
 
-		staged_cert="$(mktemp "$dir/.cert.pem.new.XXXXXX")" || {
-			echo "error: could not create a staged zone credential" >&2
+		staging="$(mktemp -d "$dir/.credential-transaction.stage.XXXXXX")" || {
+			echo "error: could not create a staged credential transaction" >&2
 			exit 1
 		}
-		staged_metadata="$(mktemp "$dir/.zone.json.new.XXXXXX")" || {
-			echo "error: could not create staged zone credential metadata" >&2
-			exit 1
-		}
+		chmod 700 "$staging" || exit 1
 
-		if ! cp -- "$candidate" "$staged_cert" || ! chmod 600 "$staged_cert"; then
+		if ! cp -- "$candidate" "$staging/new-cert" || ! chmod 600 "$staging/new-cert"; then
 			echo "error: could not stage the zone credential" >&2
 			exit 1
 		fi
-		if ! write_zone_credential_metadata "$staged_metadata" "$canonical" "$fingerprint" "$authenticated_at" || ! chmod 600 "$staged_metadata"; then
+		if ! write_zone_credential_metadata "$staging/new-metadata" "$canonical" "$fingerprint" "$authenticated_at" || ! chmod 600 "$staging/new-metadata"; then
 			echo "error: could not stage zone credential metadata" >&2
 			exit 1
 		fi
@@ -337,42 +375,45 @@ install_zone_credential() {
 				echo "error: refusing to replace a non-regular zone cert.pem" >&2
 				exit 1
 			}
-			had_cert=true
-			backup_cert="$(mktemp "$dir/.cert.pem.backup.XXXXXX")" || exit 1
-			cp -p -- "$cert" "$backup_cert" || exit 1
+			: > "$staging/had-cert" || exit 1
+			cp -- "$cert" "$staging/old-cert" || exit 1
+			chmod 600 "$staging/old-cert" || exit 1
 		fi
 		if [[ -e "$metadata" || -L "$metadata" ]]; then
 			[[ -f "$metadata" && ! -L "$metadata" ]] || {
 				echo "error: refusing to replace a non-regular zone.json" >&2
 				exit 1
 			}
-			had_metadata=true
-			backup_metadata="$(mktemp "$dir/.zone.json.backup.XXXXXX")" || exit 1
-			cp -p -- "$metadata" "$backup_metadata" || exit 1
+			: > "$staging/had-metadata" || exit 1
+			cp -- "$metadata" "$staging/old-metadata" || exit 1
+			chmod 600 "$staging/old-metadata" || exit 1
 		fi
 
-		rollback_required=true
-		if ! mv -f -- "$staged_cert" "$cert"; then
+		if ! mv -T -- "$staging" "$transaction"; then
+			echo "error: could not publish the credential transaction" >&2
+			exit 1
+		fi
+		staging=""
+		transaction_published=true
+
+		local commit_cert commit_metadata
+		commit_cert="$(mktemp "$dir/.cert.pem.commit.XXXXXX")" || exit 1
+		if ! cp -- "$transaction/new-cert" "$commit_cert" || ! chmod 600 "$commit_cert" || ! mv -f -- "$commit_cert" "$cert"; then
+			rm -f -- "$commit_cert" || true
 			echo "error: could not install the zone credential" >&2
 			exit 1
 		fi
-		staged_cert=""
-		if ! mv -f -- "$staged_metadata" "$metadata"; then
+		commit_metadata="$(mktemp "$dir/.zone.json.commit.XXXXXX")" || exit 1
+		if ! cp -- "$transaction/new-metadata" "$commit_metadata" || ! chmod 600 "$commit_metadata" || ! mv -f -- "$commit_metadata" "$metadata"; then
+			rm -f -- "$commit_metadata" || true
 			echo "error: could not install zone credential metadata" >&2
 			exit 1
 		fi
-		staged_metadata=""
 
-		if ! chmod 600 "$cert"; then
-			echo "error: could not enforce private permissions on the zone credential" >&2
-			exit 1
-		fi
-		if ! chmod 600 "$metadata"; then
-			echo "error: could not enforce private permissions on zone credential metadata" >&2
-			exit 1
-		fi
-
-		rollback_required=false
+		completed="$dir/.credential-transaction.done.$$.${RANDOM}"
+		mv -T -- "$transaction" "$completed" || exit 1
+		transaction_published=false
+		rm -rf -- "$completed" || exit 1
 		exit 0
 	)
 }
@@ -399,11 +440,27 @@ verify_zone_credential_binding() {
 		zone_binding_error "$zone_name" "the active zone is not canonical"
 		return 1
 	fi
+	recover_zone_credential_transaction "$canonical" || {
+		zone_binding_error "$canonical" "an interrupted credential replacement could not be recovered"
+		return 1
+	}
 
 	local metadata
 	metadata="$(zone_metadata_file "$canonical")"
 	[[ -f "$metadata" && ! -L "$metadata" && -r "$metadata" ]] || {
 		zone_binding_error "$canonical" "zone.json is missing or unreadable"
+		return 1
+	}
+	[[ "$(stat -c '%a' -- "$metadata" 2>/dev/null)" == "600" ]] || {
+		zone_binding_error "$canonical" "zone.json must have mode 600"
+		return 1
+	}
+	[[ -f "$credential" && ! -L "$credential" && -r "$credential" ]] || {
+		zone_binding_error "$canonical" "cert.pem is missing or unreadable"
+		return 1
+	}
+	[[ "$(stat -c '%a' -- "$credential" 2>/dev/null)" == "600" ]] || {
+		zone_binding_error "$canonical" "cert.pem must have mode 600"
 		return 1
 	}
 	validate_tunnel_token_file "$credential" >/dev/null 2>&1 || {

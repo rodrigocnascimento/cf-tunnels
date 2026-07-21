@@ -291,15 +291,22 @@ with `zone.json` metadata only after all checks pass. The user's root
 The metadata binds the canonical zone to the SHA-256 fingerprint of its local
 credential. This is a local integrity association, not a cryptographic claim
 that the token contains or owns the hostname. Before a zone credential is
-used, cftunnel requires matching metadata and fingerprint. Refresh failures
-and handled interruptions use checked rollback to preserve the previous usable
-pair; an underlying rollback failure is reported explicitly rather than being
-described as restored.
+used, cftunnel requires both files to have exact mode `600`, plus matching
+metadata and fingerprint.
+
+Credential refresh writes a private `.credential-transaction` recovery record
+containing the previous pair before either live file is changed. The refresh is
+committed only after both new files are installed. If the process is killed or
+the host crashes between the two replacements, the next credential binding
+check sees the recovery record and restores the complete previous pair before
+allowing `cloudflared` to run. The record remains available if recovery itself
+cannot finish, so a later command can retry safely.
 
 When an active zone is selected, `add --hostname` accepts only the zone apex,
 valid subdomains, or a wildcard in the complete leftmost label, such as
 `*.example.com`. Cross-zone names, suffix lookalikes, and malformed names are
-rejected before sudo, tunnel creation, YAML writes, or DNS operations.
+rejected before zone persistence or prompts, the global cloudflared version
+probe, sudo, tunnel creation, YAML writes, or DNS operations.
 
 Both version forms print the value from the installed `VERSION` file and do
 not require a configured zone, Cloudflare credentials, `cloudflared`, or
@@ -307,7 +314,7 @@ network access:
 
 ```text
 $ cftunnel --version
-cftunnel 0.3.2
+cftunnel 0.5.0
 ```
 
 ### Flags for `add`
@@ -587,6 +594,8 @@ sudo journalctl -fu cloudflared@my-tunnel --since "1 hour ago"
 | `502 Bad Gateway` | Service not responding | Check service logs |
 | DNS not resolving | Propagation delay | Wait or check Cloudflare dashboard |
 | `list` shows no hostname routes | The active zone has no YAML ingress hostnames | Select the correct zone or run `cftunnel zone unset` to scan every local zone |
+| `cert.pem must have mode 600` or `zone.json must have mode 600` | A zone credential file became group/world-accessible | Restore exact mode `600` on both files, verify their provenance, then retry; rerun `zone login` if uncertain |
+| Interrupted credential recovery fails | The durable recovery record or its saved previous pair is damaged/unreadable | Do not delete `.credential-transaction`; correct the filesystem problem and retry, or back up the zone directory before running `zone login` again |
 | Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
 | Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 
@@ -625,6 +634,8 @@ systemctl list-units 'cloudflared@*' --no-legend | awk '{print $1}' | \
 chmod 600 ~/.cloudflared/cert.pem
 chmod 600 ~/.cloudflared/*.json
 chmod 600 ~/.cloudflared/*.yml
+chmod 600 ~/.cloudflared/zones/*/cert.pem
+chmod 600 ~/.cloudflared/zones/*/zone.json
 ```
 
 > O systemd template inclui diretivas de sandbox (`NoNewPrivileges`, `PrivateTmp`, `RestrictAddressFamilies`, `MemoryMax`, etc.) que restringem o que o processo `cloudflared` pode fazer, mesmo em caso de comprometimento.

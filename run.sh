@@ -114,6 +114,26 @@ TYPE=""
 SERVICE=""
 NO_DNS=false
 
+parse_add_args() {
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--hostname | --type | --service | --name)
+			[[ $# -ge 2 ]] || die "$1 requires a value"
+			case "$1" in
+			--hostname) TUNNEL_HOSTNAME="$2" ;;
+			--type) TYPE="$2" ;;
+			--service) SERVICE="$2" ;;
+			--name) NAME="$2" ;;
+			esac
+			shift 2
+			;;
+		--no-dns) NO_DNS=true; shift ;;
+		-h | --help) print_usage; exit 0 ;;
+		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
+		esac
+	done
+}
+
 if [[ -n "$ZONE" ]]; then
 	ZONE="$(validate_zone_name "$ZONE")" || exit 1
 fi
@@ -124,6 +144,13 @@ if [[ -z "$ZONE" ]]; then
 	if [[ -n "$DEFAULT" ]]; then
 		ZONE="$DEFAULT"
 	fi
+fi
+
+# Parse and validate add input before persistence prompts, version probes, or
+# any other external/privileged side effect.
+if [[ "$cmd" == "add" ]]; then
+	parse_add_args "$@"
+	validate_add_input
 fi
 
 if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
@@ -163,17 +190,6 @@ fi
 
 case "${cmd:-}" in
 add)
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-		--hostname) TUNNEL_HOSTNAME="${2:-}"; shift 2 ;;
-		--type)     TYPE="${2:-}"; shift 2 ;;
-		--service)  SERVICE="${2:-}"; shift 2 ;;
-		--name) NAME="${2:-}"; shift 2 ;;
-		--no-dns)   NO_DNS=true; shift ;;
-		-h | --help) print_usage; exit 0 ;;
-		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
-		esac
-	done
 	op_add
 	;;
 remove)

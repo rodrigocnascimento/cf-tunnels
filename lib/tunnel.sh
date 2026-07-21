@@ -29,7 +29,7 @@ json_path_for_uuid() {
 	echo "${dir}/${1}.json"
 }
 
-validate_flags_add() {
+validate_add_input() {
 	[[ -n "${TUNNEL_HOSTNAME:-}" ]] || die "--hostname is required"
 	[[ -n "${TYPE:-}" ]] || die "--type ssh|http|tcp is required"
 	[[ -n "${SERVICE:-}" ]] || die "--service is required (e.g.: ssh://localhost:22, http://localhost:4000, tcp://localhost:6379)"
@@ -52,6 +52,10 @@ validate_flags_add() {
 		[[ "$SERVICE" == tcp://* ]] || die "--type tcp requires --service tcp://... (e.g.: tcp://localhost:6379)"
 		;;
 	esac
+}
+
+validate_flags_add() {
+	validate_add_input
 
 	if [[ $EUID -ne 0 ]]; then
 		sudo -v || die "needs sudo permission"

@@ -5,7 +5,7 @@
 > **Version:** 0.4.0 → 0.5.0
 > **Status:** Implemented — acceptance criteria verified
 > **Date:** 2026-07-18
-> **Updated:** 2026-07-19
+> **Updated:** 2026-07-21
 > **Author:** Rodrigo Nascimento
 
 ---
@@ -52,17 +52,18 @@ and hostname containment.
 
 The feature is additive but strengthens previously permissive input handling.
 Following Semantic Versioning, it targets the next minor release, `0.5.0`.
-The feature branch continues to use `VERSION=0.4.0`; the release workflow owns
-the eventual changelog promotion, version bump, and annotated tag.
+Implementation and the release metadata are complete with `VERSION=0.5.0` and
+a dated changelog entry. Creating and pushing the annotated tag remains a
+release-operator action.
 
 ### Files expected to change during implementation
 
 | File | Proposed change |
 |------|-----------------|
-| `lib/zone.sh` | Normalize/validate zones, add explicit path and registration helpers, validate persisted state, and bind token credentials through metadata |
+| `lib/zone.sh` | Normalize/validate zones, add explicit path and registration helpers, validate persisted state, bind token credentials through metadata, recover interrupted replacements, and enforce private modes |
 | `lib/cloudflared.sh` | Verify zone credential fingerprints before using zone-specific credentials |
-| `lib/tunnel.sh` | Require add hostnames to equal or be contained by the active zone |
-| `run.sh` | Route every persistent-zone write through the shared registration path |
+| `lib/tunnel.sh` | Separate pure add-input validation and require hostnames to equal or be contained by the active zone |
+| `run.sh` | Route every persistent-zone write through the shared registration path and run add-input validation before persistence or the version probe |
 | `tests/test_zones.sh` | Add zone syntax, registration, persisted-state, and failure-atomicity tests |
 | `tests/test_zone_credentials.sh` | Add token framing, isolated-login, fingerprint, metadata, and installation tests |
 | `tests/run.sh` | Register any new credential test file and update phase execution |
@@ -70,8 +71,8 @@ the eventual changelog promotion, version bump, and annotated tag.
 | `docs/SETUP-NEW-DOMAIN.md` | Correct the workflow and distinguish registration, certificate binding, Cloudflare activation, and DNS authorization |
 | `AGENTS.md`, `CHANGELOG.md` | Record security conventions, dependencies, test count, and the unreleased feature |
 
-`install.sh`, tunnel YAML formats, service units, and `VERSION` are not expected
-to change during feature implementation.
+`install.sh`, tunnel YAML formats, and service units do not change. `VERSION`
+changes only during the final release-metadata step.
 
 ---
 
@@ -461,10 +462,15 @@ already an online operation. It does not change the local/offline behavior of
    candidate, suppressing all remote account output.
 6. Calculate the candidate SHA-256 fingerprint without printing credential
    contents.
-7. Stage the candidate and `zone.json` metadata inside the destination zone.
-8. Atomically replace the previous credential and metadata as one recoverable
-   transaction.
-9. Enforce mode `600` on both files and clean the temporary workspace.
+7. Stage the complete candidate pair and copies of the previous pair inside a
+   private transaction directory in the destination zone.
+8. Atomically publish that directory as `.credential-transaction` before
+   changing either live file.
+9. Replace live `cert.pem` and `zone.json` from secured mode-`600` temporary
+   files.
+10. After both replacements succeed, atomically retire the transaction marker
+    and remove its artifacts. If the marker is found after `SIGKILL` or a host
+    crash, restore the complete previous pair before credential use.
 
 ### Local association and hostname containment
 
@@ -485,8 +491,11 @@ Instead, cftunnel records a trust-on-first-use local association in `zone.json`:
 
 Before the zone credential is used, cftunnel verifies that the metadata zone is
 canonical and equal to active `ZONE`, and that the current credential hash
-matches the stored fingerprint. Missing or mismatched metadata fails closed
-with guidance to run `cftunnel zone login` again.
+matches the stored fingerprint. Both `cert.pem` and `zone.json` must still have
+exact mode `600`. Before those checks, any published unfinished credential
+transaction is recovered by restoring the saved previous pair. Missing or
+mismatched metadata and unexpected permission bits fail closed with guidance
+to run `cftunnel zone login` again.
 
 For DNS safety, `cftunnel add` also requires `TUNNEL_HOSTNAME` to be either the
 active zone or a real subdomain boundary of it. Wildcard hostnames remain valid:
@@ -501,7 +510,9 @@ app.other.com      ∉ example.com
 
 This containment check prevents obvious cross-zone routing but does not replace
 Cloudflare authorization. Successful DNS route creation remains the definitive
-permission check.
+permission check. Parsing and containment validation run before zone
+persistence/prompts and before the global cloudflared version probe, ensuring
+invalid requests cannot reach an external or privileged startup side effect.
 
 ### Credential safety
 
@@ -513,6 +524,10 @@ The credential workflow must never:
 - overwrite a known-good destination before the replacement is fully
   validated and secured;
 - relax permissions beyond `600`.
+
+The wrapper must also reject either credential file if its permissions later
+change from exact mode `600`; it must not silently repair permission drift at
+use time.
 
 The candidate credential exists only inside a mode-`700` temporary login home.
 It is cleaned with that workspace after installation or rejection. This cleanup
@@ -534,8 +549,12 @@ root credential is not an approved fallback.
 ### Existing destination credential
 
 Running `zone login` is an explicit request to refresh authentication. A valid
-new token and its metadata may atomically replace the existing zone pair. Until
-the transaction succeeds, the existing destination must remain usable.
+new token and its metadata may transactionally replace the existing zone pair.
+Until both live replacements succeed and the transaction marker is retired,
+the saved previous pair remains authoritative and recoverable. Recovery copies
+the saved files back through same-directory temporary files and retains the
+marker until both restores finish, making recovery retryable after another
+interruption.
 
 ---
 
@@ -592,7 +611,8 @@ expression so each rejection can produce a useful error.
 - Authenticate the candidate through a suppressed read-only cloudflared call.
 - Calculate SHA-256 fingerprints without printing credential contents.
 - Atomically write stable `zone.json` metadata with mode `600`.
-- Verify metadata zone/fingerprint before a zone credential is used.
+- Recover a published unfinished replacement before a zone credential is used.
+- Verify exact mode `600`, metadata zone, and fingerprint before use.
 
 Proposed high-level interface:
 
@@ -613,9 +633,17 @@ non-secret error on failure.
 - Read the candidate only from that isolated workspace.
 - Prove that the real root certificate is unchanged.
 - Validate and remotely authenticate before copying into the zone.
-- Stage the credential and metadata inside the destination directory with mode
-  `600`.
-- Atomically replace both files with rollback on partial failure.
+- Stage the new pair and copies of the previous pair inside a private
+  same-zone transaction directory.
+- Atomically publish the durable transaction marker before either live
+  replacement.
+- Install each live file from a same-directory mode-`600` temporary file.
+- Atomically retire the marker only after both replacements succeed.
+- On handled failure, immediately restore the previous pair. On `SIGKILL` or
+  host crash, detect the remaining marker at the next binding check and restore
+  the previous pair before invoking cloudflared.
+- Keep the durable marker until both restore operations succeed so recovery is
+  retryable.
 - Clean the temporary login workspace on success, login failure, validation
   failure, and interrupted execution.
 - Preserve the previous destination on all earlier failures.
@@ -633,9 +661,13 @@ non-secret error on failure.
 - **Files:** `lib/cloudflared.sh`, `lib/tunnel.sh`, `lib/zone.sh`
 - Verify the zone metadata and credential fingerprint before the wrapper uses a
   zone-specific `cert.pem`.
+- Require exact mode `600` on both `cert.pem` and `zone.json` before invoking
+  cloudflared.
 - Require `add --hostname` to equal or end at a dot boundary below active
   `ZONE`, while preserving wildcard hostnames.
-- Fail before tunnel creation, YAML writes, or DNS operations.
+- Parse and validate add input before zone persistence/prompts and the global
+  cloudflared version probe, as well as before sudo, tunnel creation, YAML
+  writes, or DNS operations.
 
 ### CP-10: Update documentation and operational guidance
 
@@ -697,13 +729,16 @@ mocks. They must never read a developer’s real `~/.cloudflared/cert.pem`.
 | `test_zone_login_preserves_preexisting_root_cert` | A real root certificate remains byte-for-byte unchanged |
 | `test_zone_login_failure_preserves_destination` | Existing credential and metadata remain byte-for-byte unchanged |
 | `test_zone_login_installs_token_and_metadata_0600` | Credential, fingerprint, canonical zone, and permissions are correct |
-| `test_zone_login_replacement_is_atomic` | A failed staged replacement preserves the existing certificate |
+| `test_install_zone_credential_rolls_back_stage_and_rename_failures` | A handled partial replacement restores the previous pair |
+| `test_zone_binding_recovers_pair_after_sigkill_between_replacements` | The next binding check restores the previous pair after an untrappable interruption |
 | `test_zone_login_cleans_temporary_workspace` | Success and every failure path remove only the isolated login workspace |
 | `test_zone_login_never_logs_credentials` | Error and success output contain no PEM/token material |
 | `test_zone_login_validates_interactive_selection` | Typed zone names pass through the same validator |
 | `test_zone_binding_detects_swapped_credential` | Fingerprint mismatch fails before cloudflared executes |
+| `test_zone_binding_rejects_public_credential_modes_before_cloudflared` | Mode drift on either binding file fails before cloudflared executes |
 | `test_hostname_containment_accepts_zone_and_subdomains` | Apex, normal subdomains, and wildcard subdomains pass |
 | `test_hostname_containment_rejects_cross_zone_names` | Suffix lookalikes and unrelated zones fail before side effects |
+| `test_add_rejects_cross_zone_hostname_before_probe_or_persistence` | Invalid add input cannot persist a zone or run the version probe |
 
 The mock cloudflared executable may write a non-secret fixture token to its
 process-scoped home and record invocation arguments. Tests assert that neither
@@ -718,6 +753,7 @@ the fixture payload nor remote list output appears in command output.
 5. Confirm an invalid traversal input creates nothing outside the test home.
 6. Confirm local registration succeeds with no network and no `cloudflared`.
 7. Exercise credential validation only with non-production fixtures.
+8. Confirm the complete suite reports 91 passing tests.
 8. Confirm `cftunnel list`, `version`, and existing tunnel YAML behavior remain
    unchanged.
 
@@ -751,13 +787,13 @@ record or print the resulting credential.
 
 ### Release
 
-The implementation branch must not change `VERSION`. During the release:
+Release metadata was prepared on 2026-07-21:
 
-1. Move the changelog entry from `Unreleased` to `0.5.0` with the release date.
-2. Change `VERSION` from `0.4.0` to `0.5.0`.
-3. Commit the release metadata.
-4. Create annotated tag `v0.5.0` on that commit.
-5. Push the release commit and tag only after verification passes.
+1. [x] Move the changelog entry from `Unreleased` to `0.5.0` with the release date.
+2. [x] Change `VERSION` from `0.4.0` to `0.5.0`.
+3. [ ] Commit the release metadata.
+4. [ ] Create annotated tag `v0.5.0` on that commit.
+5. [ ] Push the release commit and tag only after verification passes.
 
 ---
 
@@ -774,11 +810,13 @@ The implementation branch must not change `VERSION`. During the release:
 | Cloudflare changes the token envelope | Medium | High | Validate only the observed outer PEM contract and fail closed |
 | Credential fingerprint metadata is missing or altered | Medium | High | Fail before cloudflared use and require `zone login` |
 | Rejected credential leaks through logs | Low | Critical | Never print PEM payloads or remote account output; assert output safety |
-| Failed refresh destroys a working zone certificate | Low | High | Validate and stage before atomic replacement |
+| Failed refresh destroys a working zone certificate | Low | High | Validate first, publish a durable previous-pair transaction, and restore before reuse |
+| `SIGKILL` or host crash leaves a mixed credential pair | Low | High | Detect the durable transaction at the next binding check and retryably restore the complete previous pair |
+| Credential permissions become public after login | Medium | Critical | Require exact mode `600` on both binding files before every cloudflared invocation |
 | A stale root certificate is mistaken for fresh login output | Medium | High | Generate the candidate under an isolated process-scoped `HOME` |
 | `cloudflared` ignores the isolated `HOME` | Low | High | Compatibility-test the installed version and fail closed; never touch the real root credential |
 | Local credential association is described as domain ownership | Medium | Medium | Document trust boundaries and Cloudflare activation separately |
-| Cross-zone hostname reaches route creation | Medium | High | Enforce exact apex/dot-boundary containment before side effects |
+| Cross-zone hostname reaches version/update or route activity | Medium | High | Parse and enforce containment before persistence, prompts, the version probe, sudo, or command side effects |
 | New strict validation breaks unconventional local zone names | Medium | Medium | Treat zones as Cloudflare DNS zones; document punycode and out-of-scope aliases |
 
 ---
@@ -797,7 +835,7 @@ The implementation branch must not change `VERSION`. During the release:
 | Migrating or renaming existing noncanonical directories automatically | Canonical-only state is required; correction remains manual |
 | Removing legacy root-level tunnel behavior | Unrelated to safe zone registration |
 | Changing tunnel YAML, DNS fallback, or systemd unit naming | Unrelated operational paths |
-| Bumping `VERSION` in the feature commit | Release metadata remains a separate workflow |
+| Creating or pushing the release tag | Tag publication remains an explicit release-operator workflow after verification |
 
 ---
 
@@ -862,8 +900,9 @@ default zone exists ⇒ matching zone directory exists
 existing root certificate.
 
 Run `cloudflared tunnel login` with a private temporary `HOME`, validate and
-authenticate the candidate token there, and atomically install it with metadata
-into the selected zone.
+authenticate the candidate token there, and transactionally install it with
+metadata into the selected zone. Publish a durable previous-pair record before
+changing either live file and retire it only after both replacements succeed.
 Clean only the temporary workspace afterward. If `cloudflared` does not honor
 the isolated home, fail closed and return to design review.
 
@@ -891,17 +930,22 @@ the isolated home, fail closed and return to design review.
 - [x] A pre-existing root certificate remains byte-for-byte unchanged on success and failure.
 - [x] Temporary login state is cleaned without targeting the user's real home or zone data.
 - [x] A rejected certificate does not replace the existing zone certificate.
-- [x] A valid token and matching `zone.json` metadata are atomically installed with mode `600`.
+- [x] A valid token and matching `zone.json` metadata are transactionally installed with mode `600`.
+- [x] A durable transaction is published before either live credential file is replaced.
+- [x] `SIGKILL` or a host crash between replacements is recovered by restoring the complete previous pair before cloudflared use.
+- [x] Recovery remains retryable because the durable marker is retained until both previous files are restored.
 - [x] Zone metadata records the canonical zone, credential type, SHA-256 fingerprint, and authentication timestamp.
 - [x] A missing or mismatched fingerprint fails before the wrapper invokes cloudflared.
+- [x] Mode drift from exact `600` on either `cert.pem` or `zone.json` fails before the wrapper invokes cloudflared.
 - [x] `add --hostname` accepts the active zone, subdomains, and wildcard subdomains.
-- [x] `add --hostname` rejects unrelated zones and suffix lookalikes before side effects.
+- [x] `add --hostname` rejects unrelated zones and suffix lookalikes before persistence, prompts, the version probe, sudo, or command side effects.
 - [x] No success or error path prints private keys, PEM bodies, or embedded tokens.
 - [x] Local token association is not documented as proof of legal ownership or current Cloudflare zone activation.
 - [x] New tests fail against `v0.4.0` before production implementation and pass afterward.
 - [x] `bash -n run.sh install.sh uninstall.sh lib/*.sh tests/*.sh` reports zero syntax errors.
 - [x] The full existing and new test suite passes.
 - [x] README, setup guide, technical docs, changelog, and AGENTS guidance are updated.
-- [x] `VERSION` remains `0.4.0` during feature implementation.
+- [x] The final suite contains 91 passing tests, including crash recovery, mode drift, and pre-probe validation coverage.
+- [x] `VERSION` remained `0.4.0` during feature implementation and was promoted to `0.5.0` with the release changelog.
 
 (End of file)

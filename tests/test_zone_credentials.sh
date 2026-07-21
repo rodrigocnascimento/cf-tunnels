@@ -71,7 +71,7 @@ assert_existing_zone_pair_preserved() {
 assert_no_credential_transaction_artifacts() {
 	local dir="$HOME/.cloudflared/zones/example.com"
 	local artifacts
-	artifacts="$(find "$dir" -maxdepth 1 -type f \( -name '.*.new.*' -o -name '.*.backup.*' \) -print 2>/dev/null || true)"
+	artifacts="$(find "$dir" -maxdepth 1 \( -name '.credential-transaction*' -o -name '.cert.pem.commit.*' -o -name '.zone.json.commit.*' -o -name '.*.recover.*' \) -print 2>/dev/null || true)"
 	assert_eq "" "$artifacts" "credential transaction artifacts"
 }
 
@@ -367,7 +367,7 @@ test_install_zone_credential_rolls_back_stage_and_rename_failures() {
 				cert_stage)
 					cp() {
 						local args=("$@") target="${args[${#args[@]}-1]}"
-						[[ "$target" == */.cert.pem.new.* ]] && return 1
+						[[ "$target" == */.credential-transaction.stage.*/new-cert ]] && return 1
 						command cp "$@"
 					}
 					;;
@@ -375,8 +375,8 @@ test_install_zone_credential_rolls_back_stage_and_rename_failures() {
 				cert_rename|metadata_rename)
 					mv() {
 						local args=("$@") source_path="${args[${#args[@]}-2]}" target="${args[${#args[@]}-1]}"
-						if [[ "$failure" == cert_rename && "$source_path" == */.cert.pem.new.* && "$target" == */cert.pem ]]; then return 1; fi
-						if [[ "$failure" == metadata_rename && "$source_path" == */.zone.json.new.* && "$target" == */zone.json ]]; then return 1; fi
+						if [[ "$failure" == cert_rename && "$source_path" == */.cert.pem.commit.* && "$target" == */cert.pem ]]; then return 1; fi
+						if [[ "$failure" == metadata_rename && "$source_path" == */.zone.json.commit.* && "$target" == */zone.json ]]; then return 1; fi
 						command mv "$@"
 					}
 					;;
@@ -399,7 +399,7 @@ test_install_zone_credential_rolls_back_permission_failure() {
 	write_test_token "$candidate"
 	chmod() {
 		local args=("$@") target="${args[${#args[@]}-1]}"
-		[[ "$target" == "$HOME/.cloudflared/zones/example.com/zone.json" ]] && return 1
+		[[ "$target" == */.zone.json.commit.* ]] && return 1
 		command chmod "$@"
 	}
 
@@ -421,7 +421,7 @@ test_install_zone_credential_rolls_back_on_interruption() {
 	mv() {
 		local args=("$@") source_path="${args[${#args[@]}-2]}" target="${args[${#args[@]}-1]}"
 		command mv "$@" || return 1
-		if [[ "$source_path" == */.cert.pem.new.* && "$target" == */cert.pem ]]; then
+		if [[ "$source_path" == */.cert.pem.commit.* && "$target" == */cert.pem ]]; then
 			kill -TERM "$BASHPID"
 		fi
 	}
@@ -442,8 +442,8 @@ test_install_zone_credential_reports_rollback_failure_without_false_claim() {
 	write_test_token "$candidate"
 	mv() {
 		local args=("$@") source_path="${args[${#args[@]}-2]}" target="${args[${#args[@]}-1]}"
-		if [[ "$source_path" == */.zone.json.new.* && "$target" == */zone.json ]]; then return 1; fi
-		if [[ "$source_path" == */.cert.pem.backup.* && "$target" == */cert.pem ]]; then return 1; fi
+		if [[ "$source_path" == */.zone.json.commit.* && "$target" == */zone.json ]]; then return 1; fi
+		if [[ "$source_path" == */.cert.pem.recover.* && "$target" == */cert.pem ]]; then return 1; fi
 		command mv "$@"
 	}
 
@@ -452,8 +452,10 @@ test_install_zone_credential_reports_rollback_failure_without_false_claim() {
 	assert_ne "0" "$rc" "rollback failure should fail"
 	assert_contains "$output" "rollback was incomplete" "rollback failure report"
 	assert_not_contains "$output" "previous zone credential state restored" "must not claim restoration"
-	assert_no_credential_transaction_artifacts
+	assert_dir_exists "$HOME/.cloudflared/zones/example.com/.credential-transaction" "failed rollback remains recoverable"
 	unset -f mv
+	recover_zone_credential_transaction "example.com" >/dev/null
+	assert_no_credential_transaction_artifacts
 	teardown_mock_home
 }
 
@@ -473,6 +475,63 @@ test_zone_binding_blocks_swapped_credential_before_cloudflared() {
 	teardown_mock_home
 }
 
+test_zone_binding_recovers_pair_after_sigkill_between_replacements() {
+	setup_mock_home
+	make_fake_cloudflared
+	ZONE="example.com"
+	mkdir -p "$HOME/.cloudflared/zones/example.com"
+	local cert="$HOME/.cloudflared/zones/example.com/cert.pem"
+	local metadata="$HOME/.cloudflared/zones/example.com/zone.json"
+	write_test_token "$cert" "T0xE"
+	local old_hash
+	old_hash="$(credential_sha256 "$cert")"
+	write_zone_credential_metadata "$metadata" "example.com" "$old_hash" "2026-07-19T00:00:00Z"
+	chmod 600 "$cert" "$metadata"
+	local old_cert old_metadata candidate
+	old_cert="$(cat "$cert")"
+	old_metadata="$(cat "$metadata")"
+	candidate="$HOME/candidate.pem"
+	write_test_token "$candidate" "TkVX"
+
+	mv() {
+		local args=("$@") source_path="${args[${#args[@]}-2]}" target="${args[${#args[@]}-1]}"
+		command mv "$@" || return 1
+		if [[ "$source_path" == */.cert.pem.commit.* && "$target" == */cert.pem ]]; then
+			kill -KILL "$BASHPID"
+		fi
+	}
+	local rc=0
+	install_zone_credential "$candidate" "example.com" >/dev/null 2>&1 || rc=$?
+	assert_ne "0" "$rc" "SIGKILL should interrupt the credential commit"
+	unset -f mv
+
+	: > "$CFTUNNEL_TEST_LOG"
+	cloudflared tunnel list --output json >/dev/null
+	assert_eq "$old_cert" "$(cat "$cert")" "crash recovery restores prior cert.pem"
+	assert_eq "$old_metadata" "$(cat "$metadata")" "crash recovery restores prior zone.json"
+	assert_contains "$(cat "$CFTUNNEL_TEST_LOG")" "tunnel list --output json" "cloudflared runs after recovery"
+	assert_no_credential_transaction_artifacts
+	teardown_mock_home
+}
+
+test_zone_binding_rejects_public_credential_modes_before_cloudflared() {
+	local target output rc
+	for target in cert.pem zone.json; do
+		setup_mock_home
+		make_fake_cloudflared
+		ZONE="example.com"
+		op_zone login >/dev/null
+		chmod 644 "$HOME/.cloudflared/zones/example.com/$target"
+		: > "$CFTUNNEL_TEST_LOG"
+		rc=0
+		output="$(cloudflared tunnel list --output json 2>&1)" || rc=$?
+		assert_ne "0" "$rc" "public credential mode should be rejected: $target"
+		assert_contains "$output" "$target must have mode 600" "private mode error: $target"
+		assert_eq "" "$(cat "$CFTUNNEL_TEST_LOG")" "cloudflared must not execute: $target"
+		teardown_mock_home
+	done
+}
+
 test_zone_binding_rejects_missing_and_invalid_components_before_cloudflared() {
 	local scenario output rc metadata cert hash
 	for scenario in missing_metadata symlink_metadata wrong_zone unsupported_type missing_fingerprint invalid_fingerprint missing_credential symlink_credential; do
@@ -485,6 +544,7 @@ test_zone_binding_rejects_missing_and_invalid_components_before_cloudflared() {
 		write_test_token "$cert"
 		hash="$(credential_sha256 "$cert")"
 		write_zone_credential_metadata "$metadata" "example.com" "$hash" "2026-07-19T00:00:00Z"
+		chmod 600 "$cert" "$metadata"
 
 		case "$scenario" in
 			missing_metadata) rm -f -- "$metadata" ;;
@@ -524,6 +584,7 @@ test_zone_remove_preserves_local_files_when_binding_or_remote_delete_fails() {
 			local hash
 			hash="$(credential_sha256 "$HOME/.cloudflared/zones/example.com/cert.pem")"
 			write_zone_credential_metadata "$HOME/.cloudflared/zones/example.com/zone.json" "example.com" "$hash" "2026-07-19T00:00:00Z"
+			chmod 600 "$HOME/.cloudflared/zones/example.com/cert.pem" "$HOME/.cloudflared/zones/example.com/zone.json"
 			if [[ "$scenario" == binding_failure ]]; then
 				rm -f -- "$HOME/.cloudflared/zones/example.com/zone.json"
 			else

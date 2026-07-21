@@ -282,10 +282,18 @@ base64-shaped payload, and no other PEM blocks or non-whitespace text.
 Before installation, cftunnel asks `cloudflared` to perform a read-only
 `tunnel list` authentication probe with the candidate. Remote account output
 is discarded. It then fingerprints the candidate and stages `cert.pem` plus
-`zone.json` as a recoverable transaction. Both destination files are mode
-`600`; errors, permission failures, and handled interruptions trigger checked
-rollback of the previous pair and removal of temporary state. If an underlying
-restore operation itself fails, cftunnel reports that rollback was incomplete
+`zone.json` as a recoverable transaction. Before either live file changes, a
+private `.credential-transaction` directory records the complete previous pair
+and the complete candidate pair. Both live destination files are installed
+with mode `600`; the transaction is committed only after both replacements
+succeed.
+
+Handled failures roll back immediately. If `SIGKILL` or a host crash interrupts
+the process between the two replacements, the durable transaction remains.
+The next credential binding check restores the complete previous pair before
+allowing `cloudflared` to run. Recovery uses copies and keeps the transaction
+record until restoration finishes, so another interruption can be retried. If
+an underlying restore operation fails, cftunnel reports incomplete recovery
 instead of claiming success. The real root
 `~/.cloudflared/cert.pem` is checked after login returns, including a non-zero
 return or handled login signal, and any creation, removal, or content change
@@ -303,18 +311,20 @@ fails closed.
 ```
 
 Before the wrapper invokes `cloudflared` for an active zone, it requires a
-regular supported `cert.pem`, readable `zone.json`, an exact canonical zone,
-the supported credential type, and a fingerprint matching the current file.
-Missing metadata or credentials, malformed values, and swapped credentials
-fail closed. Run `cftunnel --zone <zone> zone login` to repair the pair; do not
-copy only `cert.pem`, because that deliberately omits the required binding.
+regular supported `cert.pem`, readable `zone.json`, exact mode `600` on both
+files, an exact canonical zone, the supported credential type, and a
+fingerprint matching the current file. Missing metadata or credentials,
+unexpected permission bits, malformed values, and swapped credentials fail
+closed. Run `cftunnel --zone <zone> zone login` to repair the pair; do not copy
+only `cert.pem`, because that deliberately omits the required binding.
 
 The fingerprint is a local integrity association, not proof that the token
 cryptographically contains the zone or that the user legally owns it. For an
 active zone, `add` separately accepts only the apex, valid DNS subdomains, and
 a wildcard occupying the complete leftmost label. Cross-zone and malformed
-hostnames fail before sudo or other side effects; Cloudflare's successful DNS
-route creation remains the definitive authorization check.
+hostnames fail before persistence prompts or writes, the global cloudflared
+version probe, sudo, or other external side effects. Cloudflare's successful
+DNS route creation remains the definitive authorization check.
 
 `cftunnel version` and `cftunnel --version` are equivalent. They read the
 installed `VERSION` file and do not require a configured zone, Cloudflare
@@ -322,7 +332,7 @@ credentials, `cloudflared`, or network access:
 
 ```text
 $ cftunnel version
-cftunnel 0.3.2
+cftunnel 0.5.0
 ```
 
 ### Flags for `add`
@@ -740,6 +750,8 @@ Navigate: **Zero Trust** → **Networks** → **Tunnels**
 chmod 600 ~/.cloudflared/cert.pem
 chmod 600 ~/.cloudflared/*.json
 chmod 600 ~/.cloudflared/*.yml
+chmod 600 ~/.cloudflared/zones/*/cert.pem
+chmod 600 ~/.cloudflared/zones/*/zone.json
 ```
 
 ### Systemd Sandbox
@@ -831,6 +843,8 @@ getent ahosts api.YOUR_DOMAIN.com
 | `502 Bad Gateway` | Service not responding | Check service is running and accessible |
 | `Authentication required` | Access policy enabled | Configure Access or disable policy |
 | `list` shows no hostname routes | The active zone has no YAML ingress hostnames | Select the correct zone or run `cftunnel zone unset` to scan every local zone |
+| Zone credential must have mode `600` | `cert.pem` or `zone.json` became group/world-accessible | Restore exact mode `600` on both files after verifying them, or rerun `zone login` |
+| Interrupted credential recovery fails | The durable transaction or saved previous pair is unreadable | Preserve `.credential-transaction`, correct the filesystem problem, and retry |
 | Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
 | Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
 

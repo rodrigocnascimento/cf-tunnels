@@ -136,7 +136,8 @@ This:
 4. Requires one well-framed token-only `ARGO TUNNEL TOKEN` PEM block.
 5. Verifies that Cloudflare accepts it with a suppressed read-only request.
 6. Installs `cert.pem` and matching `zone.json` fingerprint metadata as a
-   recoverable transaction, both with mode `600`.
+   recoverable transaction, both with mode `600`. Before either live file is
+   replaced, a private recovery record saves the complete previous pair.
 7. Cleans the isolated login home and confirms that any root
    `~/.cloudflared/cert.pem` remained byte-for-byte unchanged.
 
@@ -153,6 +154,12 @@ In the browser, select exactly: mynewdomain.com
 > canonical zone and that its SHA-256 fingerprint matches the token. This is a
 > local integrity association; the token does not cryptographically prove the
 > zone hostname or domain ownership.
+
+If the process is killed or the server loses power after only one live file is
+replaced, the next zone command detects the unfinished transaction and restores
+the complete previous `cert.pem`/`zone.json` pair before invoking
+`cloudflared`. Do not manually delete `.credential-transaction`; it is what
+makes recovery possible.
 
 ### Headless servers (SSH-only)
 
@@ -173,6 +180,8 @@ The hostname must equal the active zone or be a valid DNS subdomain. A wildcard
 is allowed only as the complete leftmost label (`*.mynewdomain.com`). Names such
 as `evil-mynewdomain.com`, `foo*.mynewdomain.com`, and
 `a..mynewdomain.com` are rejected before tunnel, file, sudo, or DNS changes.
+They are also rejected before the startup cloudflared version probe or any
+prompt/write that would persist the selected zone.
 
 ### HTTP tunnel (web app / API)
 
@@ -326,6 +335,8 @@ mynewdomain.com/
 | Cloudflare rejects the credential | Wrong account/zone selection or expired authorization | Retry login and select exactly the printed canonical zone |
 | `zone.json` is missing or names another zone | Only `cert.pem` was copied, or files were swapped | Remove neither file manually; rerun `cftunnel --zone mynewdomain.com zone login` to replace the pair |
 | Credential fingerprint does not match | `cert.pem` changed or belongs to another local zone | Rerun zone login for the selected zone |
+| `cert.pem` or `zone.json` must have mode `600` | Credential permissions were relaxed after login | Verify both files, restore exact mode `600`, and retry; rerun zone login if their origin is uncertain |
+| Interrupted credential recovery fails | The durable transaction or its saved previous pair is damaged/unreadable | Preserve `.credential-transaction`, correct the filesystem problem, and retry before attempting another login |
 | Root credential integrity error | `cloudflared` wrote outside the isolated login home | Confirm the installed `cloudflared` version honors `HOME`; do not move or delete the root credential as a workaround |
 | Isolated login cleanup error | Temporary workspace could not be removed | Inspect only `~/.cloudflared/.zone-login.*`; never delete the real home or zone directory blindly |
 | Hostname does not belong to zone | Cross-zone, suffix-lookalike, or malformed hostname | Use the apex, a valid subdomain, or a complete leftmost wildcard under the active zone |

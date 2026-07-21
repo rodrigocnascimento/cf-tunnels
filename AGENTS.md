@@ -19,7 +19,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (88 tests covering functions, zones, credential transactions and binding, safe removal, local listing, parser, version reporting, YAML)
+- Test suite: `cd tests && ./run.sh` (91 tests covering functions, zones, credential transactions and binding, safe removal, local listing, parser, version reporting, YAML)
 - Test suite with full output: `./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `./run.sh list` or creating a test tunnel.
@@ -44,7 +44,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 - **Explicit zone helpers** — pass the intended canonical zone to path/directory helpers. Do not temporarily rely on a previous global `ZONE` while registering another zone.
 - **Credential secrecy and binding** — never print token/PEM contents or remote account output. Zone `cert.pem` and `zone.json` must both be mode `600`; verify canonical metadata and the SHA-256 fingerprint before invoking `cloudflared`.
 - **Isolated login and root preservation** — run `cloudflared tunnel login` with a mode-`700` temporary `HOME`, clean it on every exit/signal path, and verify the real root `~/.cloudflared/cert.pem` was not created, removed, or changed even when login returns non-zero.
-- **Recoverable credential replacement** — stage and secure both credential files, keep backups until the complete replacement succeeds, check rollback results, and remove transaction artifacts. Never replace only one side intentionally.
+- **Recoverable credential replacement** — stage and secure both credential files, publish a durable private transaction containing the previous pair before changing either live file, and retire it only after both replacements succeed. Recover a published transaction before credential use; retain it if recovery is incomplete so the next command can retry. Never replace only one side intentionally.
 - **Hostname containment** — with an active zone, accept only the apex, valid DNS subdomains, or `*` as the complete leftmost label. Reject malformed and cross-zone hostnames before sudo or external/file side effects.
 - **Fail-closed removal** — verify active-zone credential binding before stopping a service, and never delete local YAML/UUID credentials when Cloudflare tunnel deletion fails.
 - **`slugify()`** — transforms names only for systemd unit compatibility (lowercase, special chars → hyphens, no leading/trailing hyphens).
