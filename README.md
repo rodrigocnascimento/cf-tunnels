@@ -70,7 +70,7 @@ sequenceDiagram
 
 ### Connection Flow
 
-1. **You** run `./run.sh add --hostname api.domain.com --type http --service http://localhost:8080`
+1. **You** run `cftunnel add --hostname api.domain.com --type http --service http://localhost:8080`
 2. The script creates a Cloudflare Tunnel with a unique UUID
 3. DNS CNAME record `api.domain.com` → `<uuid>.cfargotunnel.com` is created automatically
 4. A systemd service `cloudflared@api-domain-com-http` is enabled and started
@@ -192,16 +192,16 @@ The installer will:
 
 ```bash
 # For a web application (in default / legacy namespace)
-./run.sh add --hostname api.example.com --type http --service http://localhost:3000
+cftunnel add --hostname api.example.com --type http --service http://localhost:3000
 
 # For SSH access
-./run.sh add --hostname ssh.example.com --type ssh --service ssh://localhost:22
+cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22
 
 # For a database (Redis, PostgreSQL, etc.)
-./run.sh add --hostname redis.example.com --type tcp --service tcp://localhost:6379
+cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
 
 # Skip DNS when using external DNS management (Terraform, manual, etc.)
-./run.sh add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
+cftunnel add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
 ```
 
 ### 3. Use Zones
@@ -314,7 +314,7 @@ network access:
 
 ```text
 $ cftunnel --version
-cftunnel 0.5.0
+cftunnel 0.5.1
 ```
 
 ### Flags for `add`
@@ -346,7 +346,7 @@ cftunnel 0.5.0
 Best for: Web applications, APIs, admin panels
 
 ```bash
-./run.sh add --hostname api.example.com --type http --service http://localhost:4000
+cftunnel add --hostname api.example.com --type http --service http://localhost:4000
 ```
 
 Users access: `https://api.example.com`
@@ -360,7 +360,7 @@ Users access: `https://api.example.com`
 Best for: Secure remote server access without opening port 22
 
 ```bash
-./run.sh add --hostname ssh.example.com --type ssh --service ssh://localhost:22
+cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22
 ```
 
 Users access via cloudflared:
@@ -413,7 +413,7 @@ flowchart LR
 **1. Create the tunnel on your server:**
 
 ```bash
-./run.sh add --hostname redis.example.com --type tcp --service tcp://localhost:6379
+cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
 ```
 
 **2. On the client machine, install cloudflared:**
@@ -525,7 +525,7 @@ ingress:
 node server.js &
 
 # Create tunnel
-./run.sh add --hostname api.example.com --type http --service http://localhost:3000
+cftunnel add --hostname api.example.com --type http --service http://localhost:3000
 ```
 
 ### Expose a Python FastAPI
@@ -535,14 +535,14 @@ node server.js &
 uvicorn main:app --host 0.0.0.0 --port 8000 &
 
 # Create tunnel
-./run.sh add --hostname api.example.com --type http --service http://localhost:8000
+cftunnel add --hostname api.example.com --type http --service http://localhost:8000
 ```
 
 ### Expose PostgreSQL for Remote Development
 
 ```bash
 # On SERVER:
-./run.sh add --hostname postgres.example.com --type tcp --service tcp://localhost:5432
+cftunnel add --hostname postgres.example.com --type tcp --service tcp://localhost:5432
 
 # On CLIENT:
 cloudflared access tcp --hostname postgres.example.com --url localhost:5432
@@ -555,9 +555,9 @@ psql -h localhost -p 5432 -U postgres
 
 ```bash
 # Expose multiple services
-./run.sh add --hostname homelab.example.com --type http --service http://localhost:80
-./run.sh add --hostname portainer.example.com --type http --service http://localhost:9000
-./run.sh add --hostname pihole.example.com --type http --service http://localhost:8080
+cftunnel add --hostname homelab.example.com --type http --service http://localhost:80
+cftunnel add --hostname portainer.example.com --type http --service http://localhost:9000
+cftunnel add --hostname pihole.example.com --type http --service http://localhost:8080
 ```
 
 ---
@@ -567,8 +567,8 @@ psql -h localhost -p 5432 -U postgres
 ### Check Tunnel Status
 
 ```bash
-# Using the script
-./run.sh status --name my-tunnel
+# Using cftunnel
+cftunnel status --name my-tunnel
 
 # Or directly with systemd
 sudo systemctl status cloudflared@my-tunnel
@@ -577,8 +577,8 @@ sudo systemctl status cloudflared@my-tunnel
 ### View Logs
 
 ```bash
-# Using the script
-./run.sh logs --name my-tunnel
+# Using cftunnel
+cftunnel logs --name my-tunnel
 
 # Or directly with journalctl
 sudo journalctl -fu cloudflared@my-tunnel --since "1 hour ago"

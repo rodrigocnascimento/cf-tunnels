@@ -502,13 +502,13 @@ existing_entries=$(awk ...)
 
 5. **`$HOME_DIR` consistency with `RUN_USER`**
    ```bash
-   RUN_USER=root ./run.sh zone current
+   RUN_USER=root cftunnel zone current
    # Should look at /root/.cloudflared/.default_zone, not current user's home
    ```
 
 6. **Empty `NAME` validation**
    ```bash
-   ./run.sh add --hostname test.example.com --type http --service http://localhost:80 --name "!!!"
+   cftunnel add --hostname test.example.com --type http --service http://localhost:80 --name "!!!"
    # Should die with "tunnel name is empty after sanitization"
    ```
 
@@ -522,9 +522,9 @@ existing_entries=$(awk ...)
 
 1. `bash -n run.sh lib/*.sh`
 2. `cd tests && ./run.sh` — all 38 tests must pass
-3. `./run.sh list` — output unchanged
-4. `./run.sh add --hostname test.example.com --type http --service http://localhost:9999` — full happy path
-5. `./run.sh remove --name test-example-com-http` — cleanup works
+3. `cftunnel list` — output unchanged
+4. `cftunnel add --hostname test.example.com --type http --service http://localhost:9999` — full happy path
+5. `cftunnel remove --name test-example-com-http` — cleanup works
 6. `cloudflared tunnel --config ~/.cloudflared/test-example-com-http.yml ingress validate` — YAML is valid
 
 ---
@@ -562,12 +562,12 @@ No state migration, no database changes, no external dependencies.
 - [x] `cloudflared tunnel list --output json | jq` succeeds even when stderr has warnings
 - [x] `op_add` with existing YAML containing `$(...)` does NOT execute the command
 - [x] `existing_entries` variable does not leak into global scope
-- [x] `RUN_USER=otheruser ./run.sh zone current` reads from `otheruser`'s home
-- [x] `./run.sh add --name "!!!"` dies with "tunnel name is empty after sanitization"
+- [x] `RUN_USER=otheruser cftunnel zone current` reads from `otheruser`'s home
+- [x] `cftunnel add --name "!!!"` dies with "tunnel name is empty after sanitization"
 - [x] `grep -c '\-\-zone)' run.sh` returns 1 (only the first-pass parser has `--zone`)
 - [x] `prompt-hook.sh` no longer exists in the repo
 - [x] `AGENTS.md` no longer references `prompt-hook.sh`
-- [x] `./run.sh list` output is identical to pre-fix behavior
+- [x] `cftunnel list` output is identical to pre-fix behavior
 - [ ] Full happy-path `add` → `remove` cycle works for a test tunnel (manual verification recommended before release)
 
 (End of file)

@@ -20,9 +20,9 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 
 - Syntax check: `bash -n run.sh`
 - Test suite: `cd tests && ./run.sh` (91 tests covering functions, zones, credential transactions and binding, safe removal, local listing, parser, version reporting, YAML)
-- Test suite with full output: `./run.sh --verbose`
+- Test suite with full output: `cd tests && ./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
-- Validate by running `./run.sh list` or creating a test tunnel.
+- Validate by running `cftunnel list` or creating a test tunnel with `cftunnel add`.
 - If modifying scripts, always run `bash -n <file>` before executing.
 
 ## Architecture
