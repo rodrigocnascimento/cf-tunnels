@@ -371,8 +371,8 @@ The new tests must fail against `v0.3.2` before production code is changed.
 1. `bash -n run.sh lib/*.sh tests/*.sh`
 2. `make -C tests smoke`
 3. `cd tests && ./run.sh --verbose`
-4. `./run.sh --version`
-5. `./run.sh version`
+4. `cftunnel --version`
+5. `cftunnel version`
 6. Invoke the command through a temporary symlink.
 7. Confirm neither successful form writes to stderr or calls Cloudflare.
 

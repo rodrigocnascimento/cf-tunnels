@@ -86,7 +86,7 @@ The project was reviewed across three axes:
 
 ### Context
 
-Running `./run.sh add --hostname *.homelaberson.space --type http --service http://localhost:80` produced:
+Running `cftunnel add --hostname *.homelaberson.space --type http --service http://localhost:80` produced:
 
 ```
 error parsing YAML ... yaml: line 12: did not find expected alphabetic or numeric character
@@ -387,9 +387,9 @@ Line 74: `REDAED` → should be `REDACTED`. Affects only the dump file annotatio
 ### Regression tests
 
 1. `bash -n run.sh` — syntax check
-2. `./run.sh list` — still works
-3. `./run.sh add --hostname test.example.com --type http --service http://localhost:9999` — full happy path
-4. `./run.sh remove --name test-example-com-http` — cleanup works
+2. `cftunnel list` — still works
+3. `cftunnel add --hostname test.example.com --type http --service http://localhost:9999` — full happy path
+4. `cftunnel remove --name test-example-com-http` — cleanup works
 5. Existing tunnels (`homelab-proxy`, `testes-lat-http`) unaffected — no config migration needed
 
 ---

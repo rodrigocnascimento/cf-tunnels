@@ -247,7 +247,7 @@ This allows:
 7. Rewrite `run.sh` — keep only config vars, module sourcing, parser, and dispatcher
 8. Syntax check: `bash -n run.sh lib/*.sh`
 9. Test suite: `cd tests && ./run.sh` (expect 44/44)
-10. Manual smoke test: `./run.sh list`
+10. Manual smoke test: `cftunnel list`
 
 ### Function Extraction Method
 
@@ -286,8 +286,8 @@ This ensures zero logic changes — pure structural refactoring.
 
 - [ ] `bash -n run.sh lib/*.sh` — zero syntax errors
 - [ ] `cd tests && ./run.sh` — all 44 tests pass
-- [ ] `./run.sh help` shows correct usage
-- [ ] `./run.sh list` shows the same output as before (same data, same formatting)
+- [ ] `cftunnel --help` shows correct usage
+- [ ] `cftunnel list` shows the same output as before (same data, same formatting)
 - [ ] Each module has sourcing guard
 - [ ] No duplicate function definitions (`grep -c '^[a-z_]*()'` check)
 - [ ] `run.sh` < 250 lines (was 1120)

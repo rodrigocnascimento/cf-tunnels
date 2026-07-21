@@ -463,12 +463,7 @@ show_summary() {
 	echo
 	echo "  1. Create your first tunnel:"
 	echo
-	if [[ -L "/usr/local/bin/cftunnel" ]]; then
-		echo "     cftunnel add --hostname api.yourdomain.com --type http --service http://localhost:3000"
-	else
-		echo "     cd $SCRIPT_DIR"
-		echo "     ./run.sh add --hostname api.yourdomain.com --type http --service http://localhost:3000"
-	fi
+	echo "     cftunnel add --hostname api.yourdomain.com --type http --service http://localhost:3000"
 	echo
 	echo "  2. For TCP/UDP tunnels (Redis, PostgreSQL, etc.):"
 	echo
