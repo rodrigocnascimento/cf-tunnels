@@ -9,12 +9,23 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 - **Installer:** `install.sh`
 - **Uninstaller:** `uninstall.sh`
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
-- **Docs:** `README.md`, `docs/DOCS.md`, `docs/CLOUDFLARE.md`
+- **User documentation:** [GitHub Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)
+- **Repository overview:** `README.md` (visitor card only; keep it concise)
 - **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`
 
 ## Project Type
 
 No build system, no package manager, no test runner, no CI. Verification is manual + `bash -n`.
+
+## Documentation Policy
+
+- All new long-form user, operator, installation, configuration, security, troubleshooting, and contributor documentation belongs in the separate GitHub Wiki repository: `git@github.com:rodrigocnascimento/cf-tunnels.wiki.git`.
+- Do not recreate `docs/` in this repository.
+- Keep `README.md` as a short visitor card: explain the project's purpose, mental model, key differentiators, minimal first look, requirements, and links into the Wiki. Do not turn it into a CLI reference or operations manual.
+- When adding or renaming a Wiki page, update the Wiki's `_Sidebar.md` in the same documentation change.
+- Use GitHub-Wiki-safe Markdown filenames, such as `Getting-Started.md`, and link pages with their canonical `https://github.com/rodrigocnascimento/cf-tunnels/wiki/...` URLs.
+- `spec/` remains the home for technical design records, `CHANGELOG.md` remains the release history, and `AGENTS.md` remains agent maintenance guidance. These are engineering records, not substitutes for Wiki user documentation.
+- Documentation changes that alter behavior descriptions must update the relevant Wiki pages together with the code change; do not defer them to an in-repository Markdown guide.
 
 ## Verification & Testing
 
