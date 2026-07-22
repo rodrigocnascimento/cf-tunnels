@@ -6,700 +6,89 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Shell-Bash-green?style=for-the-badge&logo=gnu-bash" alt="Bash">
-  <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
-  <img src="https://img.shields.io/badge/Cloudflare-Tunnel-orange?style=for-the-badge&logo=cloudflare" alt="Cloudflare">
+  <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License">
+  <img src="https://img.shields.io/badge/Cloudflare-Tunnel-orange?style=for-the-badge&logo=cloudflare" alt="Cloudflare Tunnel">
 </p>
 
-> A powerful CLI tool for managing Cloudflare Tunnels with systemd integration. Expose your local services to the internet securely through Cloudflare's edge network.
+`cftunnel` is a small, opinionated CLI for exposing services through Cloudflare Tunnel without hand-writing YAML, DNS routes, or systemd units.
 
-## Documentation
+Its goal is simple: make each tunnel easy to understand, isolated by DNS zone, safe to operate, and boring to recover.
 
-- **[Migration Guide](docs/MIGRATION.md)** — Upgrading from v0.2.0 (breaking changes)
-- **[Cloudflare Basics](docs/CLOUDFLARE.md)** — What is Cloudflare, CDN, DNS, and Zero Trust
-- **[Setting Up a New Domain](docs/SETUP-NEW-DOMAIN.md)** — Step-by-step: from domain purchase to running tunnels
-- **[Technical Docs](docs/DOCS.md)** — Detailed reference for all features
-- **[Changelog](CHANGELOG.md)** — Version history
-
-> ⚠️ **Upgrading from v0.2.0?** See [Migration Guide](docs/MIGRATION.md) for breaking changes and step-by-step migration.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [How It Works](#how-it-works)
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-- [Tunnel Types Explained](#tunnel-types-explained)
-- [Configuration](#configuration)
-- [Examples](#examples)
-- [Troubleshooting](#troubleshooting)
-- [Security](#security)
-
----
-
-## Overview
-
-Cloudflare Tunnel Manager simplifies the creation and management of Cloudflare Tunnels. Instead of manually creating YAML configs, authenticating, setting up DNS records, and configuring systemd services, you can do it all with a single command.
-
-### What is a Cloudflare Tunnel?
-
-A Cloudflare Tunnel (formerly known as `cloudflared`) creates a secure, outbound-only connection from your server to Cloudflare's edge network. This allows you to expose local services to the internet without opening inbound ports on your firewall.
-
----
-
-## How It Works
-
-```mermaid
-sequenceDiagram
-    participant User as Internet User
-    participant CF as Cloudflare Edge
-    participant CFG as cloudflared
-    participant Srv as Your Server
-    participant Loc as Local Service
-    
-    User->>CF: HTTPS Request (api.domain.com)
-    CF->>CFG: Tunnel Request
-    CFG->>Srv: Internal Connection
-    Srv->>Loc: localhost:8080
-    Loc-->>Srv: Response
-    Srv-->>CFG: Response
-    CFG-->>CF: Encrypted Response
-    CF-->>User: HTTPS Response
-```
-
-### Connection Flow
-
-1. **You** run `cftunnel add --hostname api.domain.com --type http --service http://localhost:8080`
-2. The script creates a Cloudflare Tunnel with a unique UUID
-3. DNS CNAME record `api.domain.com` → `<uuid>.cfargotunnel.com` is created automatically
-4. A systemd service `cloudflared@api-domain-com-http` is enabled and started
-5. The `cloudflared` process connects OUTBOUND to Cloudflare's edge
-6. When users visit `api.domain.com`, Cloudflare routes traffic through the tunnel to your local service
-
----
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| 🚀 **One-Command Setup** | Create tunnels with a single command |
-| 🗂️ **Zones** | Isolate tunnels by Cloudflare zone with `--zone` |
-| 🔄 **Auto DNS** | Automatically creates CNAME records |
-| ⚙️ **Systemd Integration** | Each tunnel as a separate service |
-| 🚇 **Prompt Indicator** | Shows active zone in terminal (like Python venv) |
-| 🔒 **Fail-Fast Validation** | Validates everything before starting |
-| 🛡️ **Type Safety** | Validates protocol matches service URL |
-| 📊 **Multi-Protocol** | Supports HTTP, HTTPS, SSH, and TCP |
-| 🧹 **Clean Removal** | Removes tunnel, DNS, and service |
-
----
-
-## Prerequisites
-
-| Requirement | Installation |
-|-------------|-------------|
-| `cloudflared` | [Official Guide](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/) |
-| `jq` | `sudo apt install jq` |
-| `systemd` | Included with most Linux distros |
-| `sudo` | Pre-installed on most systems |
-| `dig` (optional) | Incluído no `bind-tools`/`dnsutils`. Fallback automático para `getent ahosts` (built-in) se ausente |
-| Cloudflare Account | [Sign Up](https://dash.cloudflare.com/) |
-
-### Install cloudflared
-
-```bash
-sudo wget -O /usr/local/bin/cloudflared \
-  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-sudo chmod +x /usr/local/bin/cloudflared
-```
-
-### Authenticate
-
-```bash
-cloudflared tunnel login
-```
-
-This opens a browser for authentication and creates `~/.cloudflared/cert.pem`.
-
-### Systemd Template
-
-Create `/etc/systemd/system/cloudflared@.service`:
-
-```ini
-[Unit]
-Description=Cloudflare Tunnel (%i)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME
-ExecStart=/usr/local/bin/cloudflared tunnel --config /home/YOUR_USERNAME/.cloudflared/%i.yml run
-Restart=on-failure
-RestartSec=2
-StartLimitIntervalSec=30
-StartLimitBurst=5
-StandardOutput=journal
-StandardError=journal
-
-# Reduce logging verbosity
-Environment="CLOUDFLARED_LOGLEVEL=info"
-
-# Security: systemd sandbox
-NoNewPrivileges=true
-PrivateTmp=true
-RestrictAddressFamilies=AF_INET AF_INET6
-RestrictRealtime=true
-MemoryMax=256M
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-```
-
-> ⚠️ Replace `YOUR_USERNAME` with your actual Linux username.
-
-```bash
-sudo systemctl daemon-reload
-```
-
----
-
-## Quick Start
-
-### 1. Clone and Setup
-
-```bash
-git clone https://github.com/yourrepo/cf-tunnels.git
-cd cf-tunnels
-
-# Run the installer - it will do everything automatically!
-./install.sh
-```
-
-The installer will:
-- ✅ Install `cloudflared` if not present
-- ✅ Authenticate with Cloudflare (opens browser)
-- ✅ Create systemd template
-- ✅ Set up the directory structure
-- ✅ Create a global `cftunnel` command
-
-> 💡 Tip: Run `./install.sh --help` for installation options.
-
-### 2. Create Your First Tunnel
-
-```bash
-# For a web application (in default / legacy namespace)
-cftunnel add --hostname api.example.com --type http --service http://localhost:3000
-
-# For SSH access
-cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22
-
-# For a database (Redis, PostgreSQL, etc.)
-cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
-
-# Skip DNS when using external DNS management (Terraform, manual, etc.)
-cftunnel add --hostname db.example.com --type tcp --service tcp://localhost:5432 --no-dns
-```
-
-### 3. Use Zones
-
-Organize tunnels by Cloudflare zone:
-
-```bash
-# Create a tunnel inside a zone
-cftunnel --zone homelaberson.space add --hostname nas.homelaberson.space --type http --service http://localhost:5000
-
-# Register a canonical zone and set it as your default
-cftunnel zone use Homelaberson.Space.
-
-# Authenticate the zone (installs cert.pem plus binding metadata)
-cftunnel zone login
-
-# Now all commands use that zone automatically
-cftunnel list          # shows every local hostname route in homelaberson.space
-cftunnel add --hostname plex.homelaberson.space --type http --service http://localhost:32400
-```
-
-### 4. Manage Your Tunnels
-
-```bash
-cftunnel list          # See local hostname routes in the active zone
-cftunnel status        # Check status
-cftunnel logs          # View logs
-cftunnel stop          # Stop a tunnel
-cftunnel remove        # Remove a tunnel
-```
-
-> 💡 When a default zone is active, `list` reads that zone's YAML files. Use `cftunnel zone unset` to list hostname routes from every local zone. The command does not query Cloudflare.
-
----
-
-## Usage
-
-### Commands
-
-| Command | Description | Example |
-|---------|------------|---------|
-| `add` | Create tunnel, DNS, and enable service | `cftunnel add --hostname api.com --type http --service http://localhost:8080` |
-| `remove` | Delete tunnel and clean up | `cftunnel remove --name my-tunnel` |
-| `start` | Start a tunnel | `cftunnel start --name my-tunnel` |
-| `stop` | Stop a tunnel | `cftunnel stop --name my-tunnel` |
-| `status` | Show service status | `cftunnel status --name my-tunnel` |
-| `logs` | View logs in real-time | `cftunnel logs --name my-tunnel` |
-| `list` | List local hostname routes in the active zone, or all local zones if none is active | `cftunnel list` |
-| `zone` | Manage default/persistent zone and authentication | `cftunnel zone use homelaberson.space` |
-| `version` | Print the cftunnel application version | `cftunnel version` |
-| `cli-update` | Update the cloudflared dependency | `cftunnel cli-update` |
-
-### Zone Commands
-
-| Subcommand | Description | Example |
-|------------|-------------|---------|
-| `zone use <name>` | Register a canonical zone and set it as the default | `cftunnel zone use homelaberson.space` |
-| `zone current` | Show active default zone | `cftunnel zone current` |
-| `zone unset` | Clear default zone | `cftunnel zone unset` |
-| `zone login` | Validate and bind a Cloudflare token credential to the active zone | `cftunnel zone login` |
-
-### Global Flags
-
-| Flag | Description | Example |
-|------|-------------|---------|
-| `--version` | Print the cftunnel application version and exit | `cftunnel --version` |
-| `--zone <name>` | Operate within a specific zone (can appear anywhere) | `cftunnel --zone testes.lat add ...` |
-| `--persist` | Save `--zone` as the new default | `cftunnel --zone testes.lat --persist` |
-
-### Safe Zone Registration and Authentication
-
-`zone use`, `--zone ... --persist`, and the interactive default-change prompt
-share one registration contract. Input is normalized to lowercase with one
-optional terminal DNS root dot removed, then validated as an ASCII DNS zone.
-Registration creates `~/.cloudflared/zones/<canonical-zone>/` before atomically
-writing the mode-`600` `.default_zone` file. It is local, offline, idempotent,
-and never calls Cloudflare, DNS, a browser, or systemd.
-
-Local registration does not prove that a domain belongs to you. Cloudflare's
-`Active` zone status is the external domain-control check. `zone login` is a
-separate online operation: it runs `cloudflared tunnel login` with a private
-temporary home, accepts exactly one token-only `ARGO TUNNEL TOKEN` PEM block,
-discards output from a read-only authentication probe, and installs the token
-with `zone.json` metadata only after all checks pass. The user's root
-`~/.cloudflared/cert.pem` is monitored and must remain unchanged.
-
-The metadata binds the canonical zone to the SHA-256 fingerprint of its local
-credential. This is a local integrity association, not a cryptographic claim
-that the token contains or owns the hostname. Before a zone credential is
-used, cftunnel requires both files to have exact mode `600`, plus matching
-metadata and fingerprint.
-
-Credential refresh writes a private `.credential-transaction` recovery record
-containing the previous pair before either live file is changed. The refresh is
-committed only after both new files are installed. If the process is killed or
-the host crashes between the two replacements, the next credential binding
-check sees the recovery record and restores the complete previous pair before
-allowing `cloudflared` to run. The record remains available if recovery itself
-cannot finish, so a later command can retry safely.
-
-When an active zone is selected, `add --hostname` accepts only the zone apex,
-valid subdomains, or a wildcard in the complete leftmost label, such as
-`*.example.com`. Cross-zone names, suffix lookalikes, and malformed names are
-rejected before zone persistence or prompts, the global cloudflared version
-probe, sudo, tunnel creation, YAML writes, or DNS operations.
-
-Both version forms print the value from the installed `VERSION` file and do
-not require a configured zone, Cloudflare credentials, `cloudflared`, or
-network access:
-
-```text
-$ cftunnel --version
-cftunnel 0.5.1
-```
-
-### Flags for `add`
-
-| Flag | Required | Description | Example |
-|------|----------|-------------|---------|
-| `--hostname` | ✅ Yes | Full domain to expose | `api.example.com` |
-| `--type` | ✅ Yes | Protocol type | `http`, `ssh`, or `tcp` |
-| `--service` | ✅ Yes | Local service URL | `http://localhost:8080` |
-| `--name` | ❌ No | Custom tunnel name | `my-api` (default: `{domain}-{type}`) |
-| `--no-dns` | ❌ No | Skip automatic DNS CNAME creation | Useful when DNS is managed externally |
-| `--zone` | ❌ No | Create in a specific zone | `cftunnel add ... --zone homelaberson.space` |
-
-### Service URL Formats
-
-| Protocol | Format | Example |
-|----------|--------|---------|
-| HTTP | `http://localhost:<port>` | `http://localhost:8080` |
-| HTTPS | `https://localhost:<port>` | `https://localhost:443` |
-| SSH | `ssh://localhost:<port>` | `ssh://localhost:22` |
-| TCP | `tcp://localhost:<port>` | `tcp://localhost:6379` |
-
----
-
-## Tunnel Types Explained
-
-### HTTP/HTTPS Tunnels
-
-Best for: Web applications, APIs, admin panels
-
-```bash
-cftunnel add --hostname api.example.com --type http --service http://localhost:4000
-```
-
-Users access: `https://api.example.com`
-
-> ✅ The DNS hostname directly serves traffic through Cloudflare's edge.
-
----
-
-### SSH Tunnels
-
-Best for: Secure remote server access without opening port 22
-
-```bash
-cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22
-```
-
-Users access via cloudflared:
-
-```bash
-# On the client machine
-cloudflared access ssh --hostname ssh.example.com
-
-# Or with regular SSH
-ssh -o "ProxyCommand cloudflared access tcp --hostname ssh.example.com --url localhost:22" user@example.com
-```
-
----
-
-### TCP Tunnels (Redis, Databases, etc.)
-
-> ⚠️ **IMPORTANT**: TCP tunnels require special handling on the client side.
-
-Cloudflare's edge only serves HTTP/HTTPS traffic directly. For TCP services like databases, the client must use `cloudflared access tcp` to create a local endpoint.
-
-#### How TCP Tunnels Work
+## The idea
 
 ```mermaid
 flowchart LR
-    subgraph Server["Server (where tunnel runs)"]
-        CFG_S[cloudflared tunnel]
-        Redis[Redis<br/>localhost:6379]
-    end
-    
-    subgraph Cloudflare["Cloudflare Network"]
-        Edge[Edge Network]
-    end
-    
-    subgraph Client["Client Machine"]
-        CFG_C[cloudflared access tcp]
-        App[Your App<br/>localhost:6379]
-    end
-    
-    CFG_S --> Edge
-    Edge --> CFG_C
-    CFG_S <--> Redis
-    CFG_C <--> App
-    
-    style Redis fill:#ff6b6b
-    style App fill:#4ecdc4
+    User[Internet user] --> Edge[Cloudflare edge]
+    Server[Your server] -->|outbound tunnel| Edge
+    Edge --> CF[cloudflared]
+    CF --> Service[Local HTTP, SSH, or TCP service]
 ```
 
-#### Step-by-Step: Accessing Redis from Another Machine
+Your server connects outward to Cloudflare, so the local application does not need a directly exposed inbound port. cftunnel coordinates the Cloudflare tunnel, hostname route, local credentials, YAML configuration, and hardened systemd service.
 
-**1. Create the tunnel on your server:**
+## What makes it different
+
+- **One tunnel, one config, one service** — every tunnel has its own private YAML and systemd instance.
+- **Zone isolation** — each Cloudflare DNS zone keeps separate configuration and bound management credentials.
+- **Safe defaults** — hostname containment, private file modes, fail-closed removal, and crash-recoverable credential refresh.
+- **Automatic routing** — creates the Cloudflare tunnel and DNS route, with `--no-dns` when DNS is managed elsewhere.
+- **Local truth** — `cftunnel list` reports routes from local YAML without requiring Cloudflare or network access.
+- **Multiple origin types** — HTTP/HTTPS, SSH, and generic TCP services.
+
+## A first look
 
 ```bash
-cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379
+git clone https://github.com/rodrigocnascimento/cf-tunnels.git
+cd cf-tunnels
+./install.sh
+
+cftunnel zone use example.com
+cftunnel zone login
+
+cftunnel add \
+  --hostname app.example.com \
+  --type http \
+  --service http://localhost:3000
+
+cftunnel list
 ```
 
-**2. On the client machine, install cloudflared:**
+The normal lifecycle is:
 
-```bash
-# Same installation as server
-sudo wget -O /usr/local/bin/cloudflared \
-  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-sudo chmod +x /usr/local/bin/cloudflared
-```
+1. Register a canonical Cloudflare zone locally.
+2. Authenticate that zone and bind its credential metadata.
+3. Add a hostname route to a local service.
+4. Let cftunnel validate, configure DNS, and start the systemd unit.
+5. Operate it with `list`, `status`, `logs`, `start`, `stop`, and `remove`.
 
-**3. Start the TCP access tunnel on the client:**
+## Requirements
 
-```bash
-cloudflared access tcp --hostname redis.example.com --url localhost:6379
-```
+- Linux with systemd
+- Bash, `jq`, and `sudo`
+- a Cloudflare account and active DNS zone
+- `cloudflared` (the installer can install it)
+- optional `dig` or `host`; DNS checks fall back to `getent`
 
-**4. Connect your application:**
+## Documentation
 
-```bash
-# Redis CLI
-redis-cli -h localhost -p 6379
+The complete documentation lives in the **[cftunnel Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)**.
 
-# In your application
-redis://localhost:6379
-```
+- [Getting Started](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Getting-Started)
+- [Set Up a New Domain](https://github.com/rodrigocnascimento/cf-tunnels/wiki/New-Domain-Setup)
+- [CLI Reference](https://github.com/rodrigocnascimento/cf-tunnels/wiki/CLI-Reference)
+- [Zones and Credentials](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Zones-and-Credentials)
+- [Tunnel Types](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Tunnel-Types)
+- [Operations and Troubleshooting](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Operations-and-Troubleshooting)
+- [Security Model](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Security-Model)
 
-> 🔒 All traffic between your client and server is encrypted through Cloudflare's network!
+## Project status
 
-#### Common TCP Services
-
-| Service | Port | Example |
-|---------|------|---------|
-| Redis | 6379 | `tcp://localhost:6379` |
-| PostgreSQL | 5432 | `tcp://localhost:5432` |
-| MySQL | 3306 | `tcp://localhost:3306` |
-| MongoDB | 27017 | `tcp://localhost:27017` |
-| SMTP | 25/587 | `tcp://localhost:587` |
-
----
-
-## Configuration
-
-### File Structure
-
-**Without zones (legacy / default):**
-
-```
-~/.cloudflared/
-├── cert.pem                    # Authentication certificate (fallback)
-├── .default_zone               # Active default zone name (v0.3.0+)
-├── <uuid>.json                 # Tunnel credentials (one per tunnel)
-├── <tunnel-name>.yml           # Tunnel configuration
-└── ...
-```
-
-> Root-level legacy YAML files are not included by `cftunnel list`. Migrate supported configurations into `~/.cloudflared/zones/<domain>/`.
-
-**With zones:**
-
-```
-~/.cloudflared/
-├── cert.pem                    # Authentication certificate (fallback)
-├── .default_zone               # Active default zone name
-├── zones/
-│   └── homelaberson.space/
-│       ├── cert.pem            # Token-only zone credential (mode 600)
-│       ├── <uuid>.json         # Credentials for this zone's tunnels
-│       ├── <tunnel-name>.yml   # Configuration
-│       └── zone.json           # Canonical zone + credential fingerprint (mode 600)
-│   └── testes.lat/
-│       ├── cert.pem
-│       ├── <uuid>.json
-│       ├── <tunnel-name>.yml
-│       └── zone.json
-└── ...
-```
-
-### Example YAML Config
-
-```yaml
-tunnel: 12345678-1234-1234-1234-123456789012
-credentials-file: /home/user/.cloudflared/12345678-1234-1234-1234-123456789012.json
-
-protocol: http2
-edge-ip-version: 4
-
-originRequest:
-  tcpKeepAlive: 30s
-  keepAliveTimeout: 2m
-  connectTimeout: 10s
-
-ingress:
-  - hostname: "api.example.com"
-    service: http://localhost:3000
-  - hostname: "*.example.com"
-    service: http://localhost:8080
-  - service: http_status:404
-```
-
----
-
-## Examples
-
-### Expose a Node.js API
-
-```bash
-# Start your API
-node server.js &
-
-# Create tunnel
-cftunnel add --hostname api.example.com --type http --service http://localhost:3000
-```
-
-### Expose a Python FastAPI
-
-```bash
-# Start your API
-uvicorn main:app --host 0.0.0.0 --port 8000 &
-
-# Create tunnel
-cftunnel add --hostname api.example.com --type http --service http://localhost:8000
-```
-
-### Expose PostgreSQL for Remote Development
-
-```bash
-# On SERVER:
-cftunnel add --hostname postgres.example.com --type tcp --service tcp://localhost:5432
-
-# On CLIENT:
-cloudflared access tcp --hostname postgres.example.com --url localhost:5432
-
-# Connect with psql
-psql -h localhost -p 5432 -U postgres
-```
-
-### Access Your Home Lab
-
-```bash
-# Expose multiple services
-cftunnel add --hostname homelab.example.com --type http --service http://localhost:80
-cftunnel add --hostname portainer.example.com --type http --service http://localhost:9000
-cftunnel add --hostname pihole.example.com --type http --service http://localhost:8080
-```
-
----
-
-## Troubleshooting
-
-### Check Tunnel Status
-
-```bash
-# Using cftunnel
-cftunnel status --name my-tunnel
-
-# Or directly with systemd
-sudo systemctl status cloudflared@my-tunnel
-```
-
-### View Logs
-
-```bash
-# Using cftunnel
-cftunnel logs --name my-tunnel
-
-# Or directly with journalctl
-sudo journalctl -fu cloudflared@my-tunnel --since "1 hour ago"
-```
-
-### Common Issues
-
-| Issue | Cause | Solution |
-|-------|-------|---------|
-| `credentials file not found` | Missing auth | Run `cloudflared tunnel login` |
-| `DNS record already exists` | CNAME conflict | Remove existing record in Cloudflare dashboard |
-| `connection refused` | Service not running | Start your local service |
-| `502 Bad Gateway` | Service not responding | Check service logs |
-| DNS not resolving | Propagation delay | Wait or check Cloudflare dashboard |
-| `list` shows no hostname routes | The active zone has no YAML ingress hostnames | Select the correct zone or run `cftunnel zone unset` to scan every local zone |
-| `cert.pem must have mode 600` or `zone.json must have mode 600` | A zone credential file became group/world-accessible | Restore exact mode `600` on both files, verify their provenance, then retry; rerun `zone login` if uncertain |
-| Interrupted credential recovery fails | The durable recovery record or its saved previous pair is damaged/unreadable | Do not delete `.credential-transaction`; correct the filesystem problem and retry, or back up the zone directory before running `zone login` again |
-| Prompt hook not showing | Hook not installed | Re-run `./install.sh` or source `prompt-hook.sh` manually |
-| Prompt hook broke theme | Conflict with p10k / oh-my-zsh | Set `CFTUNNEL_PROMPT_MODE=none` before sourcing |
-
-### Validate DNS
-
-```bash
-# Check if DNS points to tunnel
-dig @1.1.1.1 +short api.example.com
-
-# Should return: <uuid>.cfargotunnel.com
-```
-
-### Validate Tunnel Config
-
-```bash
-cloudflared tunnel --config ~/.cloudflared/my-tunnel.yml ingress validate
-```
-
-### Restart Everything
-
-```bash
-# Restart all tunnel services
-systemctl list-units 'cloudflared@*' --no-legend | awk '{print $1}' | \
-  xargs -I{} sudo systemctl restart {}
-```
-
----
-
-## Security
-
-### Protect Sensitive Files
-
-```bash
-# O script automaticamente aplica chmod 600 aos YAMLs gerados.
-# Para os arquivos existentes:
-chmod 600 ~/.cloudflared/cert.pem
-chmod 600 ~/.cloudflared/*.json
-chmod 600 ~/.cloudflared/*.yml
-chmod 600 ~/.cloudflared/zones/*/cert.pem
-chmod 600 ~/.cloudflared/zones/*/zone.json
-```
-
-> O systemd template inclui diretivas de sandbox (`NoNewPrivileges`, `PrivateTmp`, `RestrictAddressFamilies`, `MemoryMax`, etc.) que restringem o que o processo `cloudflared` pode fazer, mesmo em caso de comprometimento.
-
-### Use Cloudflare Access
-
-For sensitive services (SSH, databases, admin panels), enable Cloudflare Access policies:
-
-1. Go to [Cloudflare Zero Trust Dashboard](https://dash.cloudflare.com/)
-2. Create an Access Application for your hostname
-3. Configure authentication (Google, GitHub, etc.)
-4. Only authenticated users can access your tunnel
-
-### Best Practices
-
-| Practice | Why |
-|----------|-----|
-| Use Cloudflare Access | Adds authentication layer |
-| Keep cert.pem secure | It's your authentication |
-| Use HTTPS internally | Encrypt local traffic |
-| Monitor logs | Detect unusual access |
-
----
-
-## License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
----
+The project is actively evolving and intentionally targets a focused Linux/systemd workflow. Check [CHANGELOG.md](CHANGELOG.md) for releases and `cftunnel --version` for the installed application version.
 
 ## Contributing
 
-Pull requests welcome! Please ensure shell scripts pass syntax check and the test suite:
+Issues and pull requests are welcome. Run the shell syntax checks and the full test suite before submitting changes; the [development guide](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Development-and-Testing) has the current workflow.
 
-```bash
-# Syntax check
-bash -n run.sh
-bash -n install.sh
-bash -n uninstall.sh
+## License
 
-# Run full test suite
-cd tests
-./run.sh
-
-# Or with verbose output
-./run.sh --verbose
-```
-
-## Uninstall
-
-To remove the Cloudflare Tunnel Manager:
-
-```bash
-./uninstall.sh
-```
-
-To also remove cloudflared and all configurations:
-
-```bash
-./uninstall.sh --remove-cloudflared --remove-configs
-```
-
----
-
-<p align="center">
-  Made with ❤️ for the Cloudflare community
-</p>
+[MIT](LICENSE)

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-21
+
+### Documentation
+- Replaced the large in-repository documentation set with a focused GitHub Wiki organized by setup, concepts, reference, operations, security, and development topics.
+- Rewrote `README.md` as a concise project visitor card and removed the obsolete `docs/` directory.
+- Added repository guidance requiring future long-form documentation to be maintained in the Wiki with matching sidebar navigation.
+
 ## [0.5.1] - 2026-07-21
 
 ### Documentation

@@ -479,7 +479,7 @@ show_summary() {
 	echo
 	echo "════════════════════════════════════════════════════════════════"
 	echo
-	echo -e "${BLUE}Documentation:${NC} $SCRIPT_DIR/README.md"
+	echo -e "${BLUE}Documentation:${NC} https://github.com/rodrigocnascimento/cf-tunnels/wiki"
 	echo -e "${BLUE}Changelog:${NC} $SCRIPT_DIR/CHANGELOG.md"
 	echo
 }
