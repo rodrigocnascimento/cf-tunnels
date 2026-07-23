@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-23
+
 ### Changed
 - Removed the automatic `cloudflared` version probe from normal command startup. Dependency updates remain explicit through `cftunnel cli-update`.
 - `cftunnel add` now performs one exact-name tunnel discovery after confirmation, requests sudo only after successful read-only discovery, and reuses structured discovery/create output instead of listing all tunnels again for the UUID.
