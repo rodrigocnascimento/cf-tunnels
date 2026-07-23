@@ -11,7 +11,7 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **User documentation:** [GitHub Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)
 - **Repository overview:** `README.md` (visitor card only; keep it concise)
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`
 
 ## Project Type
 
@@ -30,7 +30,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (91 tests covering functions, zones, credential transactions and binding, safe removal, local listing, parser, version reporting, YAML)
+- Test suite: `cd tests && ./run.sh` (104 tests covering functions, zones, credential transactions and binding, safe removal, fail-closed remote discovery, local listing, parser, version reporting, YAML)
 - Test suite with full output: `cd tests && ./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `cftunnel list` or creating a test tunnel with `cftunnel add`.
@@ -57,6 +57,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 - **Isolated login and root preservation** — run `cloudflared tunnel login` with a mode-`700` temporary `HOME`, clean it on every exit/signal path, and verify the real root `~/.cloudflared/cert.pem` was not created, removed, or changed even when login returns non-zero.
 - **Recoverable credential replacement** — stage and secure both credential files, publish a durable private transaction containing the previous pair before changing either live file, and retire it only after both replacements succeed. Recover a published transaction before credential use; retain it if recovery is incomplete so the next command can retry. Never replace only one side intentionally.
 - **Hostname containment** — with an active zone, accept only the apex, valid DNS subdomains, or `*` as the complete leftmost label. Reject malformed and cross-zone hostnames before sudo or external/file side effects.
+- **Fail-closed tunnel discovery** — `add` must distinguish a successful empty exact-name response from DNS, network, authentication, API, or JSON failure. Validate remote UUIDs before forming paths; never create on uncertain discovery, and never continue to YAML/DNS/systemd after an uncertain create result.
 - **Fail-closed removal** — verify active-zone credential binding before stopping a service, and never delete local YAML/UUID credentials when Cloudflare tunnel deletion fails.
 - **`slugify()`** — transforms names only for systemd unit compatibility (lowercase, special chars → hyphens, no leading/trailing hyphens).
 - **Application version** — `cftunnel version` and `cftunnel --version` read the root `VERSION` file. Keep their dispatch before zone loading and dependency checks so they remain offline and side-effect-free.
@@ -73,12 +74,14 @@ If no `dig`/`host`, the `cfargotunnel.com` check is skipped gracefully; DNS stil
 ## Command Flow (`op_add`)
 
 1. Validate flags (`--hostname`, `--type`, `--service`, type/protocol match)
-2. Derive tunnel name from domain+type if `--name` not given
-3. Create tunnel (if new) → capture UUID
-4. Write YAML (quoted values, `chmod 600`)
-5. Validate ingress via `cloudflared tunnel --config $YAML ingress validate`
-6. DNS check → create CNAME route → wait up to 30s for propagation (`--no-dns` skips all DNS steps)
-7. Enable & start systemd service
+2. Derive tunnel name from domain+type if `--name` not given and show the confirmation preview
+3. Perform a read-only exact-name discovery; stop on request, JSON, ambiguity, or UUID failure
+4. Obtain sudo authorization, then create only after a successful empty discovery
+5. Reuse the validated discovery/create UUID and locate its credential JSON
+6. Write YAML (quoted values, `chmod 600`)
+7. Validate ingress via `cloudflared tunnel --config $YAML ingress validate`
+8. DNS check → create CNAME route → wait up to 30s for propagation (`--no-dns` skips all DNS steps)
+9. Enable & start systemd service
 
 ## Flags & Behavior
 
@@ -86,13 +89,13 @@ If no `dig`/`host`, the `cfargotunnel.com` check is skipped gracefully; DNS stil
 - `--zone <name>` — operates inside an isolated zone directory.
 - `--persist` — combined with `--zone`, saves it as the default persistent zone.
 - `zone login` — authenticates in an isolated home, validates the token, performs a suppressed read-only authentication probe, and transactionally installs `cert.pem` plus `zone.json`.
-- `cli-update` — self-updates the `cloudflared` binary; skips version check.
+- `cli-update` — explicitly updates the `cloudflared` binary.
 - `version` / `--version` — reports the cftunnel application version from `VERSION`; it does not report or update `cloudflared`.
 - `list` — reads hostname routes only from zone YAML files. An active zone scans that zone; no active zone scans all `zones/*/*.yml`. Root-level YAML and the Cloudflare API are not used.
 
-## Version Check Behavior
+## Dependency Update Behavior
 
-`check_cloudflared_version()` runs on **every** command except `cli-update`, `list`, `version`, `--version`, and `zone`. It probes `cloudflared tunnel list`, filters the "outdated" JSON warning via a wrapper function, and interactively prompts to update if outdated. `list` and version reporting are exempt so they remain fully local and offline-capable.
+Normal commands do not perform an automatic dependency-version probe. The old probe used an authenticated account tunnel listing, discarded failures, and could duplicate operational API errors. Use `cftunnel cli-update` explicitly. `list` and application version reporting remain fully local and offline-capable.
 
 ## Security Hardening in Systemd Template
 

@@ -56,10 +56,110 @@ validate_add_input() {
 
 validate_flags_add() {
 	validate_add_input
+}
 
-	if [[ $EUID -ne 0 ]]; then
-		sudo -v || die "needs sudo permission"
+validate_tunnel_uuid() {
+	local uuid="${1:-}"
+	local uuid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+	[[ "$uuid" =~ $uuid_pattern ]] || return 1
+	[[ "$uuid" != "00000000-0000-0000-0000-000000000000" ]] || return 1
+	printf '%s\n' "${uuid,,}"
+}
+
+tunnel_discovery_error() {
+	echo "error: Cloudflare tunnel discovery returned an invalid or ambiguous response; no tunnel was created" >&2
+	return 1
+}
+
+tunnel_creation_error() {
+	echo "error: tunnel creation did not return a usable UUID; remote state may have changed." >&2
+	echo "Retry the same cftunnel add command to discover and resume safely." >&2
+	return 1
+}
+
+discover_tunnel_uuid() {
+	local name="${1:-}"
+	local tunnels_json
+	if ! tunnels_json="$(cloudflared tunnel list --name "$name" --output json)"; then
+		echo "error: could not query Cloudflare tunnels for '$name'; no tunnel was created" >&2
+		echo "Check DNS/network connectivity and the active zone credential, then retry." >&2
+		return 1
 	fi
+
+	if ! jq -e 'type == "array"' >/dev/null 2>&1 <<< "$tunnels_json"; then
+		tunnel_discovery_error
+		return 1
+	fi
+
+	local result_count
+	result_count="$(jq -r 'length' <<< "$tunnels_json" 2>/dev/null)" || {
+		tunnel_discovery_error
+		return 1
+	}
+
+	local matches_json
+	matches_json="$(jq -c --arg name "$name" \
+		'[.[] | select(type == "object" and .name == $name)]' \
+		<<< "$tunnels_json" 2>/dev/null)" || {
+		tunnel_discovery_error
+		return 1
+	}
+
+	local match_count
+	match_count="$(jq -r 'length' <<< "$matches_json" 2>/dev/null)" || {
+		tunnel_discovery_error
+		return 1
+	}
+	case "$match_count" in
+	0)
+		if [[ "$result_count" == "0" ]]; then
+			return 0
+		fi
+		tunnel_discovery_error
+		return 1
+		;;
+	1)
+		;;
+	*)
+		tunnel_discovery_error
+		return 1
+		;;
+	esac
+
+	local uuid
+	uuid="$(jq -er '.[0].id | select(type == "string")' \
+		<<< "$matches_json" 2>/dev/null)" || {
+		tunnel_discovery_error
+		return 1
+	}
+	uuid="$(validate_tunnel_uuid "$uuid")" || {
+		tunnel_discovery_error
+		return 1
+	}
+	printf '%s\n' "$uuid"
+}
+
+create_tunnel_uuid() {
+	local name="${1:-}"
+	local create_json
+	if ! create_json="$(cloudflared tunnel create --output json "$name")"; then
+		tunnel_creation_error
+		return 1
+	fi
+
+	local uuid
+	uuid="$(jq -er --arg name "$name" \
+		'select(type == "object" and .name == $name) |
+		.id | select(type == "string")' \
+		<<< "$create_json" 2>/dev/null)" || {
+		tunnel_creation_error
+		return 1
+	}
+	uuid="$(validate_tunnel_uuid "$uuid")" || {
+		tunnel_creation_error
+		return 1
+	}
+	printf '%s\n' "$uuid"
 }
 
 op_add() {
@@ -82,8 +182,6 @@ op_add() {
 	local YAML
 	YAML="$(yaml_path_for "$NAME")"
 
-	ensure_zone_dir
-
 	local zone_display="${ZONE:-default}"
 	echo
 	echo ">>> About to perform the following actions:"
@@ -102,18 +200,24 @@ op_add() {
 	fi
 	echo
 
-	if ! cloudflared tunnel list --output json | jq -er ".[] | select(.name==\"$NAME\")" >/dev/null 2>&1; then
+	local UUID
+	UUID="$(discover_tunnel_uuid "$NAME")" || return 1
+
+	if [[ $EUID -ne 0 ]]; then
+		sudo -v || die "needs sudo permission"
+	fi
+
+	if [[ -z "$UUID" ]]; then
 		echo "[+] creating tunnel: $NAME"
-		cloudflared tunnel create "$NAME" >/dev/null
+		UUID="$(create_tunnel_uuid "$NAME")" || return 1
 	else
 		echo "[=] tunnel '$NAME' already exists (ok)"
 	fi
 
-	local UUID
-	UUID="$(cloudflared tunnel list --output json | jq -r ".[] | select(.name==\"$NAME\") | .id")"
-	[[ -n "$UUID" && "$UUID" != "null" ]] || die "could not get UUID for tunnel '$NAME'"
+	ensure_zone_dir
 
-	local CREDS_JSON="$(zone_base_dir)/${UUID}.json"
+	local CREDS_JSON
+	CREDS_JSON="$(zone_base_dir)/${UUID}.json"
 	local created_json="$BASE_DIR/${UUID}.json"
 	if [[ -n "$ZONE" && -f "$created_json" && ! -f "$CREDS_JSON" ]]; then
 		mv "$created_json" "$CREDS_JSON"

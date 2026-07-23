@@ -105,10 +105,8 @@ teardown_mock_home() {
 	rm -rf "$HOME/.cloudflared"
 }
 
-# Prevent run.sh from exiting during source (it calls check_cloudflared_version which calls exit)
+# Keep function tests independent from command dispatch.
 mock_main() {
-	# Override check_cloudflared_version to no-op
-	check_cloudflared_version() { return 0; }
 	# Ensure functions use the temp HOME
 	HOME_DIR="$HOME"
 	BASE_DIR="$HOME/.cloudflared"

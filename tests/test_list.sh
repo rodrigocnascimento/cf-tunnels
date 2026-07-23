@@ -181,8 +181,6 @@ test_list_never_calls_cloudflared() {
 		return 99
 	}
 
-	cmd="list"
-	check_cloudflared_version
 	op_list >/dev/null
 
 	if [[ -e "$call_log" ]]; then
