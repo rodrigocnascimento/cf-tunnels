@@ -25,6 +25,12 @@ test_slugify_empty_result() {
 	assert_eq "" "$result" "slugify empty result"
 }
 
+test_slugify_strips_non_ascii_letters() {
+	local result
+	result="$(slugify "Bücher")"
+	assert_eq "b-cher" "$result" "slugify strips accented unicode"
+}
+
 test_zone_base_dir_no_zone() {
 	ZONE=""
 	local result
@@ -151,7 +157,8 @@ test_hostname_belongs_to_zone_accepts_apex_subdomains_and_wildcards() {
 test_hostname_belongs_to_zone_rejects_cross_zone_names() {
 	local hostname
 	for hostname in evil-example.com app.other.com example.com.evil .example.com foo\*.example.com a..example.com \
-		'*.*.example.com' '-app.example.com' 'app-.example.com' 'app_example.com' 'https://app.example.com'; do
+		'*.*.example.com' '-app.example.com' 'app-.example.com' 'app_example.com' 'https://app.example.com' \
+		'bücher.example.com' 'app.bücher.com'; do
 		if hostname_belongs_to_zone "$hostname" "example.com"; then
 			echo "ASSERT FAIL: invalid or cross-zone hostname accepted: $hostname" >&2
 			exit 1
