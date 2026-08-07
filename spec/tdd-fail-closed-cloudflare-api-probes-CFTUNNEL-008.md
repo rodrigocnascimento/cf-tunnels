@@ -747,5 +747,10 @@ availability is established.
 - [x] `make smoke`, `make unit`, `make integration`, `make cli`, and `make all`
       pass.
 - [x] `AGENTS.md`, `CHANGELOG.md`, and the affected Wiki pages are updated with
-      the implementation.
+      the implementation. (Correction, 2026-08-07: this box was checked at the
+      time but the Wiki pages were not actually updated — `CLI-Reference.md`,
+      `Operations-and-Troubleshooting.md`, `Security-Model.md`, and
+      `New-Domain-Setup.md` still described the removed automatic version
+      probe, and the fail-closed discovery/retry behavior was never
+      documented. Fixed during the CFTUNNEL-009/0.5.4 housekeeping pass.)
 - [x] `README.md` remains a concise visitor card.
