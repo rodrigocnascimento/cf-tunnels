@@ -3,6 +3,7 @@ _CFTUNNEL_ZONE_LOADED=1
 
 validate_zone_name() {
 	local raw="${1:-}"
+	local LC_ALL=C
 	[[ -n "$raw" ]] || die "Invalid zone name: zone is required"
 
 	local name="${raw,,}"
@@ -134,6 +135,7 @@ ensure_zone_dir() {
 hostname_belongs_to_zone() {
 	local hostname="${1:-}"
 	local zone_name="${2:-}"
+	local LC_ALL=C
 	[[ -n "$hostname" && -n "$zone_name" ]] || return 1
 
 	hostname="${hostname,,}"
@@ -178,7 +180,7 @@ validate_tunnel_token_file() {
 		return 1
 	fi
 
-	if ! awk '
+	if ! LC_ALL=C awk '
 		BEGIN { state = 0; blocks = 0; payload_lines = 0 }
 		$0 == "-----BEGIN ARGO TUNNEL TOKEN-----" {
 			if (state != 0 || blocks != 0) exit 1

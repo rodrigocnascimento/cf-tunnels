@@ -146,8 +146,8 @@ if [[ -z "$ZONE" ]]; then
 	fi
 fi
 
-# Parse and validate add input before persistence prompts, version probes, or
-# any other external/privileged side effect.
+# Parse and validate add input before persistence prompts or any other
+# external/privileged side effect.
 if [[ "$cmd" == "add" ]]; then
 	parse_add_args "$@"
 	validate_add_input
@@ -176,9 +176,6 @@ if [[ "$cmd" != "zone" ]]; then
 		fi
 	fi
 fi
-
-# Hard Gate: Version check for cloudflared
-check_cloudflared_version
 
 if [[ -z "${cmd:-}" && "$PERSIST_ZONE" == true && -n "$ZONE" ]]; then
 	echo "[+] Zone '$ZONE' is now the default (persistent)."

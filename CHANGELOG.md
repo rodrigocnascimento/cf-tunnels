@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `validate_zone_name`, `hostname_belongs_to_zone`, `validate_tunnel_token_file`, `print_cftunnel_version`, `slugify`, and `validate_tunnel_uuid` now lock `LC_ALL=C` around their character-range validation, closing a locale-collation bypass where accented Latin letters (e.g. `é`, `ü`) could pass ASCII-only checks under common UTF-8 locales such as `en_US.UTF-8`. `slugify` was silently letting the resulting non-ASCII bytes into tunnel names, YAML paths, and systemd unit names instead of stripping them; `validate_tunnel_uuid` was accepting malformed identifiers into credential paths and DNS targets. See `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`.
+
+### Tests
+- Added regression coverage for the locale-collation bypass across `slugify`, `hostname_belongs_to_zone`, `validate_tunnel_token_file`, and `validate_tunnel_uuid`.
+
+## [0.5.3] - 2026-07-23
+
+### Changed
+- Removed the automatic `cloudflared` version probe from normal command startup. Dependency updates remain explicit through `cftunnel cli-update`.
+- `cftunnel add` now performs one exact-name tunnel discovery after confirmation, requests sudo only after successful read-only discovery, and reuses structured discovery/create output instead of listing all tunnels again for the UUID.
+
+### Fixed
+- `cftunnel add` no longer interprets DNS, network, authentication, Cloudflare API, or JSON parsing failures as evidence that a tunnel does not exist.
+- Malformed, ambiguous, mismatched, or invalid-UUID Cloudflare responses now stop before tunnel creation, local YAML changes, DNS routing, or systemd operations.
+- Uncertain tunnel-creation results now stop with safe retry guidance instead of continuing with partially known remote state.
+
+### Security
+- Tunnel UUIDs are validated and normalized before they are used in credential paths, YAML, or DNS targets.
+- Captured tunnel-list and tunnel-create JSON remains suppressed on success and failure paths.
+
+### Tests
+- Expanded the suite to 104 tests, including focused coverage for failed and malformed discovery, unexpected response shapes, structured creation, UUID validation, response secrecy, safe retry behavior, sudo ordering, and prevention of downstream side effects.
+
+### Documentation
+- Added the CFTUNNEL-008 technical design record for fail-closed Cloudflare API probes and tunnel discovery.
+
 ## [0.5.2] - 2026-07-21
 
 ### Documentation

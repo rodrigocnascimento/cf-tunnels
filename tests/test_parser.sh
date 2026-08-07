@@ -95,40 +95,9 @@ test_parser_persist_no_command() {
 	assert_eq "0" "${#CLEAN_ARGS[@]}" "parser: no clean args"
 }
 
-test_parser_skips_version_check_for_zone() {
-	mock_main
-	# check_cloudflared_version should skip for zone cmd
-	cmd="zone"
-	if [[ "$cmd" == "cli-update" || "$cmd" == "zone" || -z "${cmd:-}" ]]; then
-		true  # correctly skipped
-	else
-		false
-	fi
-}
-
-test_parser_skips_version_check_for_cli_update() {
-	mock_main
-	cmd="cli-update"
-	if [[ "$cmd" == "cli-update" || "$cmd" == "zone" || -z "${cmd:-}" ]]; then
-		true
-	else
-		false
-	fi
-}
-
-test_parser_skips_version_check_for_list() {
-	mock_main
-	cmd="list"
-	if [[ "$cmd" == "cli-update" || "$cmd" == "list" || "$cmd" == "zone" || -z "${cmd:-}" ]]; then
-		true
-	else
-		false
-	fi
-}
-
-test_add_rejects_cross_zone_hostname_before_probe_or_persistence() {
+test_add_rejects_cross_zone_hostname_before_external_or_persistence() {
 	local fake_bin="$HOME/fake-bin"
-	local probe_log="$HOME/cloudflared-probe.log"
+	local cloudflared_log="$HOME/cloudflared.log"
 	mkdir -p "$fake_bin"
 	printf '%s\n' \
 		'#!/usr/bin/env bash' \
@@ -141,11 +110,11 @@ test_add_rejects_cross_zone_hostname_before_probe_or_persistence() {
 	chmod +x "$fake_bin/getent" "$fake_bin/cloudflared"
 
 	local output rc=0
-	output="$(PATH="$fake_bin:$PATH" RUN_USER=cftunnel-test USER=cftunnel-test CFTUNNEL_PROBE_LOG="$probe_log" \
+	output="$(PATH="$fake_bin:$PATH" RUN_USER=cftunnel-test USER=cftunnel-test CFTUNNEL_PROBE_LOG="$cloudflared_log" \
 		bash "$PROJECT_DIR/run.sh" --zone example.com --persist add \
 		--hostname app.other.com --type http --service http://localhost:8080 2>&1)" || rc=$?
 	assert_ne "0" "$rc" "cross-zone add should fail"
-	assert_contains "$output" "does not belong to zone 'example.com'" "pre-probe containment error"
-	assert_file_not_exists "$probe_log" "version probe must not run"
+	assert_contains "$output" "does not belong to zone 'example.com'" "pre-external containment error"
+	assert_file_not_exists "$cloudflared_log" "cloudflared must not run"
 	assert_file_not_exists "$HOME/.cloudflared/.default_zone" "invalid add must not persist the zone"
 }

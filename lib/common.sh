@@ -8,6 +8,7 @@ die() {
 need() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
 
 print_cftunnel_version() {
+	local LC_ALL=C
 	local version_file="${CFTUNNEL_VERSION_FILE:-$SCRIPT_DIR/VERSION}"
 	[[ -f "$version_file" && -r "$version_file" ]] || die "version file is missing or unreadable: $version_file"
 
@@ -23,5 +24,6 @@ print_cftunnel_version() {
 }
 
 slugify() {
+	local -x LC_ALL=C
 	echo "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'
 }

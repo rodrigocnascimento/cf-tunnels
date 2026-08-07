@@ -87,7 +87,7 @@ test_zone_token_rejects_missing_empty_and_malformed_files() {
 	setup_mock_home
 	local token="$HOME/token.pem" output rc
 	local fixture
-	for fixture in empty missing_begin missing_end empty_payload wrong_type duplicate trailing_text; do
+	for fixture in empty missing_begin missing_end empty_payload wrong_type duplicate trailing_text non_ascii_payload; do
 		: > "$token"
 		case "$fixture" in
 			empty) : ;;
@@ -95,6 +95,7 @@ test_zone_token_rejects_missing_empty_and_malformed_files() {
 			missing_end) printf '%s\n' '-----BEGIN ARGO TUNNEL TOKEN-----' 'VEVTVA==' > "$token" ;;
 			empty_payload) printf '%s\n' '-----BEGIN ARGO TUNNEL TOKEN-----' '-----END ARGO TUNNEL TOKEN-----' > "$token" ;;
 			wrong_type) printf '%s\n' '-----BEGIN CERTIFICATE-----' 'VEVTVA==' '-----END CERTIFICATE-----' > "$token" ;;
+			non_ascii_payload) write_test_token "$token" "büchAAA===" ;;
 			duplicate)
 				write_test_token "$token"
 				write_test_token "$HOME/second.pem"

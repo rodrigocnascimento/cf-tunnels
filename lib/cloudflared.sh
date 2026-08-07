@@ -63,30 +63,3 @@ update_cloudflared() {
 		die "Failed to install cloudflared (permission issue?)"
 	fi
 }
-
-check_cloudflared_version() {
-	case "${cmd:-}" in
-	"" | --version | cli-update | list | version | zone)
-		return 0
-		;;
-	esac
-
-	local output
-	output=$(cloudflared tunnel list --output json | cat || true)
-
-	if echo "$output" | grep -qi "outdated"; then
-		echo
-		echo "⚠️  Seu cloudflared está desatualizado."
-		echo "    Versão atual:  $(cloudflared --version 2>/dev/null | awk '{print $3}' | head -1)"
-		echo "    Recomendado: atualizar para a versão mais recente."
-		echo
-		read -p "Deseja atualizar o cloudflared agora? [y/N] " -n 1 -r || true
-		echo
-		if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-			update_cloudflared
-		else
-			echo "Atualização cancelada. Você pode rodar manualmente depois com: cftunnel cli-update"
-		fi
-		echo
-	fi
-}
