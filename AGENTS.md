@@ -11,7 +11,7 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **User documentation:** [GitHub Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)
 - **Repository overview:** `README.md` (visitor card only; keep it concise)
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented)
 
 ## Project Type
 
@@ -30,7 +30,7 @@ No build system, no package manager, no test runner, no CI. Verification is manu
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (104 tests covering functions, zones, credential transactions and binding, safe removal, fail-closed remote discovery, local listing, parser, version reporting, YAML)
+- Test suite: `cd tests && ./run.sh` (105 tests covering functions, zones, credential transactions and binding, safe removal, fail-closed remote discovery, local listing, parser, version reporting, YAML)
 - Test suite with full output: `cd tests && ./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `cftunnel list` or creating a test tunnel with `cftunnel add`.
