@@ -3,7 +3,7 @@
 > **Issue:** CFTUNNEL-009
 > **Title:** Close Locale-Collation Validation Gap in `validate_tunnel_uuid()`
 > **Version:** 0.5.3 → 0.5.4 (proposed)
-> **Status:** CP-01 implemented and verified; CP-02/CP-03 remain optional and unimplemented
+> **Status:** CP-01, CP-02, and CP-03 implemented and verified
 > **Date:** 2026-08-06
 > **Updated:** 2026-08-06
 > **Author:** Rodrigo Nascimento (drafted from a `/code-review high` finding against `main`)
@@ -50,8 +50,8 @@ picked up independently.
 
 | File | Proposed change |
 |------|-----------------|
-| `lib/tunnel.sh` | Lock `LC_ALL=C` in `validate_tunnel_uuid()` |
-| `tests/test_functions.sh` or a new `tests/test_tunnel_uuid.sh` | Add a regression test with an accented-Latin UUID-shaped string |
+| `lib/tunnel.sh` | Lock `LC_ALL=C` in `validate_tunnel_uuid()`; add shared `extract_and_validate_uuid()` helper (CP-02) |
+| `tests/test_add_remote_failures.sh` | Add a regression case with an accented-Latin UUID-shaped string to the existing `validate_tunnel_uuid` rejection loop |
 | `CHANGELOG.md` | Record the fix under `Unreleased` / `Fixed` |
 
 No other files are expected to change.
@@ -178,7 +178,7 @@ not shell out to any external command. This mirrors `validate_zone_name`
 exactly and keeps the fix's blast radius confined to this function's own
 call stack, consistent with the reasoning already agreed for `d17f2a8`.
 
-### CP-02 (optional, not required to close BUG-01): Extract a shared UUID-from-JSON helper
+### CP-02 (optional, not required to close BUG-01) — Implemented: Extract a shared UUID-from-JSON helper
 
 - **Files:** `lib/tunnel.sh`
 - **Action:** Introduce `extract_and_validate_uuid(json, jq_filter, error_fn)`
@@ -187,15 +187,26 @@ call stack, consistent with the reasoning already agreed for `d17f2a8`.
 - **Sequencing:** Land after CP-01 and its tests are merged, as a separate
   refactor commit, so the correctness fix is not entangled with a structural
   change.
+- **Outcome:** shipped as `extract_and_validate_uuid()`, signature
+  `(json, error_fn, jq_args...)` — `error_fn` moved before the variadic `jq`
+  arguments so `"$@"` can be forwarded directly to `jq -er`. `create_tunnel_uuid`
+  uses it as originally proposed; `discover_tunnel_uuid` stopped using it once
+  CP-03 folded its final extraction step into the combined `jq` program below.
 
-### CP-03 (optional, not required to close BUG-01): Combine `discover_tunnel_uuid`'s five `jq` calls into one
+### CP-03 (optional, not required to close BUG-01) — Implemented: Combine `discover_tunnel_uuid`'s `jq` calls into one
 
 - **Files:** `lib/tunnel.sh`
-- **Action:** Replace the five sequential `jq` invocations in
-  `discover_tunnel_uuid` with a single `jq --arg name "$name"` program that
-  emits one JSON object carrying type, total length, and the name-filtered
-  matches, then branch in bash on that one parsed result.
+- **Action:** Replace the four sequential `jq` invocations in
+  `discover_tunnel_uuid` (type check, total length, filtered-matches array,
+  filtered length — the fifth call, `id` extraction, lived in what became
+  `extract_and_validate_uuid`) with a single `jq -r --arg name "$name"`
+  program emitting one `@tsv` line, parsed with `IFS=$'\t' read`.
 - **Sequencing:** Independent of CP-01/CP-02; lowest priority of the three.
+- **Outcome:** reconsidered and shipped. See
+  [Acceptance Criteria](#acceptance-criteria) for the verification method
+  (instrumented `jq` call counter: 4 calls before, 1 after) and the specific
+  behaviors re-verified (the `total`-vs-`match_count` distinction and
+  non-string-`id` rejection).
 
 ---
 
@@ -204,7 +215,7 @@ call stack, consistent with the reasoning already agreed for `d17f2a8`.
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | `LC_ALL=C` changes the accepted UUID charset for a legitimate non-ASCII Cloudflare identifier | Very Low | Low | Cloudflare tunnel UUIDs are documented as lowercase hex UUIDv4; `C` locale does not change ASCII hex-digit matching, only removes the accented-character bypass |
-| CP-02/CP-03 refactors introduce a regression in the fail-closed discovery/create paths hardened by CFTUNNEL-008 | Low | High | Keep CP-02/CP-03 as separate, optional follow-up commits gated by the full `tests/test_add_remote_failures.sh` suite (22 tests); do not bundle with CP-01 |
+| CP-02/CP-03 refactors introduce a regression in the fail-closed discovery/create paths hardened by CFTUNNEL-008 | Low | High | Realized as planned: CP-02 and CP-03 shipped as separate commits from CP-01, each gated by the full `tests/test_add_remote_failures.sh` suite (22 tests, unchanged pass/fail assertions) |
 | Fix is applied but no regression test locks it in | Medium | Medium | CP-01 ships with a dedicated test (see Test Plan) using the same accented-UUID string reproduced in this document |
 
 ### Breaking changes
@@ -245,12 +256,15 @@ Confirm the new test fails against the current `main`/pre-fix code for the
 documented reason (`en_US.UTF-8` accepts the accented UUID) before applying
 CP-01, then passes after.
 
-### Out of scope for this test plan
+### CP-02 / CP-03 verification (implemented after CP-01)
 
-CP-02 and CP-03, if picked up, require their own test changes (verifying the
-combined `jq` output shape and that `discover_tunnel_uuid`/
-`create_tunnel_uuid` still produce identical behavior) and are not covered
-here.
+No new test cases were needed for CP-02 or CP-03 beyond what already existed:
+both are internal refactors of code already covered by the 22 tests in
+`tests/test_add_remote_failures.sh`, and that suite passed unchanged after
+each. CP-03 was additionally verified with a one-off instrumented `jq`
+wrapper counting invocations (not committed to the test suite, since it
+measures an implementation detail rather than an observable behavior):
+4 calls before, 1 after, for a two-element discovery fixture.
 
 ---
 
@@ -259,7 +273,6 @@ here.
 | Item | Reason |
 |------|--------|
 | Auditing other repositories/scripts for the same locale-collation class of bug | Outside this project's boundary |
-| CP-02 (shared UUID helper) and CP-03 (single-`jq` discovery) implementation | Low-severity, non-blocking; tracked here for visibility only, not required to close BUG-01 |
 | Re-auditing the five functions already fixed in `d17f2a8` | Already fixed and covered by existing regression tests |
 | Changing the UUID format Cloudflare is expected to return | Cloudflare's contract is external; this fix only tightens local validation |
 
@@ -289,6 +302,26 @@ and its accompanying test. No data migration is involved.
 - [x] No behavior change for legitimate lowercase-hex Cloudflare UUIDs
       (`test_tunnel_uuid_validation_accepts_and_normalizes_uuid` still passes).
 
-CP-02 (shared UUID helper) and CP-03 (single-`jq` discovery) remain
-unimplemented — they were recorded as optional and non-blocking and are not
-required to close BUG-01.
+CP-02 shipped as `extract_and_validate_uuid()` (`lib/tunnel.sh:81-94`), a
+shared helper taking the captured JSON, the `jq` filter (plus any extra `jq`
+arguments such as `--arg name "$name"`), and the error function to call on
+failure. `discover_tunnel_uuid` and `create_tunnel_uuid` both now delegate to
+it instead of duplicating the extract-validate-error block; behavior,
+including exact error messages and exit codes, is unchanged and covered by
+the existing 105-test suite (`cd tests && ./run.sh --verbose`).
+
+CP-03 was reconsidered and implemented: `discover_tunnel_uuid` now runs a
+single `jq -r --arg name "$name"` program that computes, in one pass, whether
+the response is an array, the total element count, the exact-name match
+count, and the matched object's `id` (only when it is a string and exactly
+one match exists) — emitted as one `@tsv` line and parsed with
+`IFS=$'\t' read`. This replaces the four sequential `jq` calls (type check,
+total length, filtered-matches array, filtered length) with one, while
+`create_tunnel_uuid`'s single call via `extract_and_validate_uuid` (CP-02) is
+unaffected. Verified with an instrumented `jq` wrapper counting invocations:
+4 calls before, 1 after, for the same fixture. The `total` vs. `match_count`
+distinction — required so that unrelated objects returned despite `--name`
+still fail closed instead of being read as "empty" — is preserved exactly,
+as is the non-string-`id` rejection previously done via `select(type ==
+"string")`. All 22 tests in `tests/test_add_remote_failures.sh` pass
+unchanged, including response-secrecy assertions.

@@ -78,6 +78,21 @@ tunnel_creation_error() {
 	return 1
 }
 
+extract_and_validate_uuid() {
+	local json="$1" error_fn="$2"
+	shift 2
+	local uuid
+	uuid="$(jq -er "$@" <<< "$json" 2>/dev/null)" || {
+		"$error_fn"
+		return 1
+	}
+	uuid="$(validate_tunnel_uuid "$uuid")" || {
+		"$error_fn"
+		return 1
+	}
+	printf '%s\n' "$uuid"
+}
+
 discover_tunnel_uuid() {
 	local name="${1:-}"
 	local tunnels_json
@@ -87,33 +102,37 @@ discover_tunnel_uuid() {
 		return 1
 	fi
 
-	if ! jq -e 'type == "array"' >/dev/null 2>&1 <<< "$tunnels_json"; then
+	local summary
+	summary="$(jq -r --arg name "$name" '
+		if type != "array" then
+			"invalid\t\t\t"
+		else
+			(map(select(type == "object" and .name == $name))) as $matches
+			| [
+				"ok",
+				(length | tostring),
+				($matches | length | tostring),
+				(if ($matches | length) == 1 and ($matches[0].id | type) == "string"
+					then $matches[0].id
+					else ""
+				end)
+			] | @tsv
+		end
+	' <<< "$tunnels_json" 2>/dev/null)" || {
 		tunnel_discovery_error
 		return 1
-	fi
+	}
 
-	local result_count
-	result_count="$(jq -r 'length' <<< "$tunnels_json" 2>/dev/null)" || {
+	local status total match_count id
+	IFS=$'\t' read -r status total match_count id <<< "$summary"
+	[[ "$status" == "ok" ]] || {
 		tunnel_discovery_error
 		return 1
 	}
 
-	local matches_json
-	matches_json="$(jq -c --arg name "$name" \
-		'[.[] | select(type == "object" and .name == $name)]' \
-		<<< "$tunnels_json" 2>/dev/null)" || {
-		tunnel_discovery_error
-		return 1
-	}
-
-	local match_count
-	match_count="$(jq -r 'length' <<< "$matches_json" 2>/dev/null)" || {
-		tunnel_discovery_error
-		return 1
-	}
 	case "$match_count" in
 	0)
-		if [[ "$result_count" == "0" ]]; then
+		if [[ "$total" == "0" ]]; then
 			return 0
 		fi
 		tunnel_discovery_error
@@ -127,13 +146,13 @@ discover_tunnel_uuid() {
 		;;
 	esac
 
-	local uuid
-	uuid="$(jq -er '.[0].id | select(type == "string")' \
-		<<< "$matches_json" 2>/dev/null)" || {
+	[[ -n "$id" ]] || {
 		tunnel_discovery_error
 		return 1
 	}
-	uuid="$(validate_tunnel_uuid "$uuid")" || {
+
+	local uuid
+	uuid="$(validate_tunnel_uuid "$id")" || {
 		tunnel_discovery_error
 		return 1
 	}
@@ -148,19 +167,10 @@ create_tunnel_uuid() {
 		return 1
 	fi
 
-	local uuid
-	uuid="$(jq -er --arg name "$name" \
+	extract_and_validate_uuid "$create_json" tunnel_creation_error \
+		--arg name "$name" \
 		'select(type == "object" and .name == $name) |
-		.id | select(type == "string")' \
-		<<< "$create_json" 2>/dev/null)" || {
-		tunnel_creation_error
-		return 1
-	}
-	uuid="$(validate_tunnel_uuid "$uuid")" || {
-		tunnel_creation_error
-		return 1
-	}
-	printf '%s\n' "$uuid"
+		.id | select(type == "string")'
 }
 
 op_add() {
