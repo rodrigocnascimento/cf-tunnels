@@ -28,7 +28,8 @@ test_tunnel_uuid_validation_rejects_unsafe_values() {
 	for value in "" "null" "12345678" "../credential" \
 		"00000000-0000-0000-0000-000000000000" \
 		"12345678-1234-1234-1234-12345678901g" \
-		"12345678-1234-1234-1234-123456789012.json"; do
+		"12345678-1234-1234-1234-123456789012.json" \
+		"1234567é-1234-1234-1234-123456789012"; do
 		rc=0
 		result="$(validate_tunnel_uuid "$value" 2>&1)" || rc=$?
 		assert_ne "0" "$rc" "invalid tunnel UUID: $value"

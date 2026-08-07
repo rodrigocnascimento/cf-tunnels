@@ -60,6 +60,7 @@ validate_flags_add() {
 
 validate_tunnel_uuid() {
 	local uuid="${1:-}"
+	local LC_ALL=C
 	local uuid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 	[[ "$uuid" =~ $uuid_pattern ]] || return 1
 	[[ "$uuid" != "00000000-0000-0000-0000-000000000000" ]] || return 1

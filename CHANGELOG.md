@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `validate_zone_name`, `hostname_belongs_to_zone`, `validate_tunnel_token_file`, `print_cftunnel_version`, `slugify`, and `validate_tunnel_uuid` now lock `LC_ALL=C` around their character-range validation, closing a locale-collation bypass where accented Latin letters (e.g. `é`, `ü`) could pass ASCII-only checks under common UTF-8 locales such as `en_US.UTF-8`. `slugify` was silently letting the resulting non-ASCII bytes into tunnel names, YAML paths, and systemd unit names instead of stripping them; `validate_tunnel_uuid` was accepting malformed identifiers into credential paths and DNS targets. See `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`.
+
+### Tests
+- Added regression coverage for the locale-collation bypass across `slugify`, `hostname_belongs_to_zone`, `validate_tunnel_token_file`, and `validate_tunnel_uuid`.
+
 ## [0.5.3] - 2026-07-23
 
 ### Changed
