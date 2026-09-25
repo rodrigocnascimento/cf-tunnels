@@ -7,6 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-25
+
+### Added
+- `cftunnel tui-dev` now performs actionable preflight checks for Bun version,
+  source package/dependencies, matching cftunnel/TUI versions, local JSON
+  contract availability, interactive ANSI terminal support, and minimum width.
+- Added CFTUNNEL-017, defining the future compiled Bun artifact, detached
+  manifest, version/contract/hash verification, and installer boundary for
+  `cftunnel tui` production launch.
+
+## [0.10.0] - 2026-09-25
+
+### Added
+- On narrow terminals, the dashboard now presents navigation and tunnel detail
+  as sequential Tab-switchable panels, avoiding a vertically clipped detail
+  pane while preserving all controls.
+- Added a state/data-source legend and explicit local inventory timestamp;
+  systemd state is identified as a current local query and health remains a
+  separate explicit timestamped observation.
+- Per-tunnel inventory now surfaces local configuration issues without
+  suppressing other zones or tunnels. Failed systemd units and unavailable
+  systemd are distinguished from ordinary inactive units.
+
+## [0.9.0] - 2026-09-25
+
+### Added
+- The dashboard can now run an explicit health check for the selected tunnel
+  (`h`) or the current zone/all-zones scope (`H`), with visible in-progress
+  and completion timestamps.
+- Tunnel details now expose local YAML and credential-file presence/modes,
+  expected systemd unit, route count, and actionable diagnostics for missing
+  credentials, inactive units, and unresolved DNS observations.
+- Added interactive `/` filtering over zone, tunnel name, hostname, and
+  systemd state. Refresh preserves the selected tunnel when it remains in the
+  current scope.
+
+### Changed
+- `tunnel.list` JSON now includes non-secret local configuration presence/mode
+  data for each tunnel.
+
+## [0.8.0] - 2026-09-25
+
+### Added
+- Added `zone list --output json`, a local-only zone inventory that discovers
+  registered zones even when they have no tunnel YAMLs. It reports the default
+  marker, tunnel/route totals, and non-secret credential-binding state.
+- Added `--all-zones` for read-only `list` and `health` inventory requests.
+  It explicitly bypasses the persistent default-zone scope and cannot be used
+  with mutation commands or `--zone`.
+- The Ink dashboard now starts in an all-local-zones view, displays registered
+  zones and their credential state, supports temporary zone selection with
+  left/right arrows, and gives an explicit empty state for zones without local
+  tunnels.
+
+### Tests
+- Added contract coverage for zone discovery, empty registered zones, and
+  aggregated local tunnel inventory; added adapter coverage for scoped calls.
+
+## [0.7.0] - 2026-09-25
+
+### Added
+- Added the read-only Ink + React operational TUI in `packages/tui/`, executed
+  and tested by Bun. Its operational adapter uses only the versioned JSON
+  contracts from cftunnel; it never calls Cloudflare, systemd, or sudo itself.
+- The first view supports capability negotiation, zone context, local tunnel
+  inventory, selection, explicit per-tunnel health checks, refresh, and quit.
+- Added `cftunnel tui-dev`, which launches the checkout's TUI and automatically
+  binds it to the same source `run.sh`. Reserved `cftunnel tui` for the future
+  packaged production artifact.
+
+### Tests
+- Added Bun tests for the Ink render under Bun and the subprocess adapter's
+  malformed-response rejection and argument-array boundary.
+
+## [0.6.0] - 2026-09-25
+
+### Added
+- Added the first read-only TUI integration contracts: `capabilities`, JSON
+  output for zone context, local route inventory, tunnel status, and health,
+  plus non-interactive `privilege check` for cached sudo availability.
+- Added `health --output json`, which reports local configuration and
+  credential presence, systemd state, and explicit DNS observations without
+  querying Cloudflare.
+
+### Changed
+- `--output text|json` is now a global option. Existing human output remains
+  the default; JSON operations emit one versioned document on stdout.
+- `--zone` now selects a zone only for the current invocation. It never asks
+  to persist or changes the default implicitly; `--persist` is the explicit
+  persistence path.
+- `status` no longer requests sudo before its unprivileged systemd query.
+
+### Tests
+- Added contract coverage for capabilities, JSON zone operations, local JSON
+  inventory, no-sudo status/health, and non-interactive sudo-cache probing.
+
 ## [0.5.4] - 2026-08-07
 
 ### Fixed

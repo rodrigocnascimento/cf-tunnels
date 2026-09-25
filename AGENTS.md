@@ -11,11 +11,14 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **User documentation:** [GitHub Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)
 - **Repository overview:** `README.md` (visitor card only; keep it concise)
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented)
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented), `spec/tdd-remotely-managed-tunnels-exploration-CFTUNNEL-011.md` (exploratory, not decided), `spec/tdd-cftunnel-backup-CFTUNNEL-012.md` (proposed, not started)
 
 ## Project Type
 
-No build system, no package manager, no test runner, no CI. Verification is manual + `bash -n`.
+The hardened management core is Bash. The optional read-only TUI lives in
+`packages/tui/` and uses Ink + React/TypeScript on Bun; it is a separate
+subprocess client of cftunnel's JSON contracts. Core verification is manual +
+`bash -n`; TUI verification uses `cd packages/tui && bun run typecheck && bun test`.
 
 ## Documentation Policy
 

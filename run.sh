@@ -20,6 +20,8 @@ source "$SCRIPT_DIR/lib/dns.sh"
 source "$SCRIPT_DIR/lib/cloudflared.sh"
 source "$SCRIPT_DIR/lib/zone.sh"
 source "$SCRIPT_DIR/lib/tunnel.sh"
+source "$SCRIPT_DIR/lib/contracts.sh"
+source "$SCRIPT_DIR/lib/health.sh"
 
 # ===== Help text =============================================================
 print_usage() {
@@ -29,6 +31,8 @@ Usage:
 
 Global options:
   --zone NAME     Operate within a specific zone (can appear anywhere)
+  --all-zones     Read local inventory across every registered zone (list/health only)
+  --output FORMAT  Output format: text (default) or json
   --version       Show the cftunnel version and exit
 
 Commands:
@@ -36,11 +40,17 @@ Commands:
   remove        --name NAME
   start|stop|status|logs   --name NAME
   list          List local hostname routes in the active zone (or all zones if none)
+  health        Check local tunnel configuration, systemd, and DNS state
+  capabilities  Show supported machine-readable contract operations
+  privilege     Check cached sudo availability for future TUI mutations
+  tui-dev       Launch the checkout's read-only Ink/Bun TUI
+  tui           Reserved for the future installed production TUI
   version       Show the cftunnel version and exit
   cli-update    Update the cloudflared dependency to the latest version
   zone          Manage persistent default zone and authentication
 
 Zone commands:
+	zone list             List registered local zones and their contract state
   zone use <name>     Register a zone and set it as the default (persistent)
   zone current        Show the current default zone
   zone unset          Clear the default zone
@@ -64,11 +74,42 @@ Examples:
 USAGE
 }
 
+tui_dev_preflight() {
+	command -v bun >/dev/null 2>&1 || die "TUI development requires Bun 1.3.0 or newer; install Bun and run 'bun install' in packages/tui"
+	local bun_version
+	bun_version="$(bun --version 2>/dev/null || true)"
+	if [[ -z "$bun_version" || "$(printf '%s\n%s\n' "1.3.0" "$bun_version" | sort -V | head -n1)" != "1.3.0" ]]; then
+		die "TUI development requires Bun 1.3.0 or newer (found '${bun_version:-unknown}')"
+	fi
+
+	local tui_dir="$SCRIPT_DIR/packages/tui" tui_entry="$SCRIPT_DIR/packages/tui/src/index.tsx"
+	[[ -f "$tui_entry" && -f "$tui_dir/package.json" && -f "$tui_dir/bun.lock" ]] || die "TUI source package is incomplete; use a complete source checkout"
+	[[ -f "$tui_dir/node_modules/ink/package.json" && -f "$tui_dir/node_modules/react/package.json" ]] || die "TUI dependencies are missing; run 'cd $tui_dir && bun install'"
+
+	local cli_version tui_version
+	cli_version="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"
+	tui_version="$(sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$tui_dir/package.json" | head -n1)"
+	[[ -n "$cli_version" && "$cli_version" == "$tui_version" ]] || die "TUI package version '${tui_version:-unknown}' does not match cftunnel '$cli_version'; update or reinstall the checkout"
+	"$SCRIPT_DIR/run.sh" capabilities --output json >/dev/null 2>&1 || die "this cftunnel checkout does not provide a usable JSON contract for the TUI"
+
+	if [[ "${CFTUNNEL_TUI_TEST_MODE:-}" != "1" ]]; then
+		[[ -t 0 && -t 1 ]] || die "TUI development requires an interactive terminal; run 'cftunnel tui-dev' directly in a terminal"
+		[[ "${TERM:-}" != "dumb" ]] || die "TUI development requires a terminal with ANSI screen support (TERM must not be dumb)"
+		local columns
+		columns="$(tput cols 2>/dev/null || printf 0)"
+		if [[ "$columns" =~ ^[0-9]+$ && "$columns" -gt 0 && "$columns" -lt 60 ]]; then
+			die "TUI development needs at least 60 terminal columns (found $columns)"
+		fi
+	fi
+}
+
 # ===== Argument parser =======================================================
 
 # First pass: extract global options from anywhere in the command line.
 ARGS=("$@")
 PERSIST_ZONE=false
+ALL_ZONES=false
+OUTPUT_FORMAT="text"
 current_default=""
 
 declare -a CLEAN_ARGS=()
@@ -88,6 +129,18 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
             PERSIST_ZONE=true
             ((i++)) || true
             ;;
+		--all-zones)
+			ALL_ZONES=true
+			((i++)) || true
+			;;
+        --output)
+            if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                OUTPUT_FORMAT="${ARGS[$((i+1))]}"
+                ((i+=2)) || true
+            else
+                die "--output requires a value"
+            fi
+            ;;
         *)
             CLEAN_ARGS+=("$arg")
             ((i++)) || true
@@ -97,6 +150,11 @@ done
 
 set -- "${CLEAN_ARGS[@]}"
 
+case "$OUTPUT_FORMAT" in
+text|json) ;;
+*) die "--output must be 'text' or 'json'" ;;
+esac
+
 cmd="${1:-}"
 shift || true
 
@@ -105,6 +163,30 @@ version | --version)
 	[[ $# -eq 0 ]] || die "'$cmd' does not accept arguments"
 	print_cftunnel_version
 	exit 0
+	;;
+	esac
+
+case "$cmd" in
+capabilities)
+	[[ $# -eq 0 ]] || die "'capabilities' does not accept arguments"
+	op_capabilities
+	exit 0
+	;;
+privilege)
+	[[ "${1:-}" == "check" && $# -eq 1 ]] || die "Usage: cftunnel privilege check --output json"
+	op_privilege_check
+	exit 0
+	;;
+tui-dev)
+	[[ $# -eq 0 ]] || die "'tui-dev' does not accept arguments"
+	tui_dev_preflight
+	tui_entry="$SCRIPT_DIR/packages/tui/src/index.tsx"
+	[[ -f "$tui_entry" ]] || die "TUI development entry point is missing: $tui_entry"
+	CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec bun run "$tui_entry"
+	;;
+tui)
+	[[ $# -eq 0 ]] || die "'tui' does not accept arguments"
+	die "the production TUI is not packaged yet; use 'cftunnel tui-dev' from a source checkout"
 	;;
 esac
 
@@ -138,8 +220,15 @@ if [[ -n "$ZONE" ]]; then
 	ZONE="$(validate_zone_name "$ZONE")" || exit 1
 fi
 
+if [[ "$ALL_ZONES" == true && -n "$ZONE" ]]; then
+	die "--all-zones cannot be combined with --zone"
+fi
+if [[ "$ALL_ZONES" == true && "$cmd" != list && "$cmd" != health ]]; then
+	die "--all-zones is only supported by list and health"
+fi
+
 # Load default/persistent zone
-if [[ -z "$ZONE" ]]; then
+if [[ -z "$ZONE" && "$ALL_ZONES" == false ]]; then
 	DEFAULT="$(load_default_zone)" || exit 1
 	if [[ -n "$DEFAULT" ]]; then
 		ZONE="$DEFAULT"
@@ -158,22 +247,6 @@ if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
 	ZONE="$(register_zone "$ZONE")" || exit 1
 	if [[ "$ZONE" != "$current_default" ]]; then
 		echo "[+] Zone '$ZONE' is now the default (persistent)."
-	fi
-fi
-
-if [[ "$cmd" != "zone" ]]; then
-	if [[ -n "$ZONE" && "$PERSIST_ZONE" != true ]]; then
-		current_default="$(load_default_zone)" || exit 1
-		if [[ -n "$current_default" && "$ZONE" != "$current_default" ]]; then
-			echo
-			echo ">>> You are using zone '$ZONE', but your current default is '$current_default'."
-			read -p "Do you want to make '$ZONE' your new default zone? [y/N] " -n 1 -r || true
-			echo
-			if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-				ZONE="$(register_zone "$ZONE")" || exit 1
-				echo "[+] Default zone changed to '$ZONE'."
-			fi
-		fi
 	fi
 fi
 
@@ -236,6 +309,17 @@ logs)
 	op_logs
 	;;
 list) op_list ;;
+health)
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--name) NAME="${2:-}"; [[ -n "$NAME" ]] || die "--name requires a value"; shift 2 ;;
+		-h | --help) print_usage; exit 0 ;;
+		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
+		esac
+	done
+	json_enabled || die "health requires --output json"
+	op_health
+	;;
 cli-update) update_cloudflared ;;
 zone) op_zone "$@" ;;
 -h | --help | "") print_usage ;;
