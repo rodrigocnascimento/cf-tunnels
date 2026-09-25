@@ -26,6 +26,16 @@ test("passes an explicit zone only through argument-array scope flags", async ()
 	expect(received).toEqual(["--zone", "example.com", "list", "--output", "json"]);
 });
 
+test("sets an already-discovered zone through the JSON contract", async () => {
+	let received: string[] = [];
+	const runner: ProcessRunner = {run: async args => {
+		received = args;
+		return {exitCode: 0, stderr: "", stdout: JSON.stringify({schema_version: 1, operation: "zone.use", ok: true, data: {zone: "example.com", persisted: true, directory_created: true}, warnings: []})};
+	}};
+	await expect(new CftunnelOperations(runner).zoneUse("example.com")).resolves.toEqual({zone: "example.com", persisted: true, directory_created: true});
+	expect(received).toEqual(["zone", "use", "example.com", "--output", "json"]);
+});
+
 test("runs an aggregate health check without a tunnel name", async () => {
 	let received: string[] = [];
 	const runner: ProcessRunner = {run: async args => {
