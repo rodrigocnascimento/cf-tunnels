@@ -40,12 +40,16 @@ test("confirms a Scope change before persisting the CLI default zone", async () 
 	await new Promise(resolve => setTimeout(resolve, 20));
 	view.stdin.write("\u001B[C");
 	await new Promise(resolve => setTimeout(resolve, 20));
-	expect(view.lastFrame()).toContain("CHANGE ACTIVE ZONE");
+	expect(view.lastFrame()).not.toContain("CHANGE ACTIVE ZONE");
+	expect(view.lastFrame()).toContain("two.example");
 	expect(used).toEqual([]);
+	view.stdin.write("\r");
+	await new Promise(resolve => setTimeout(resolve, 20));
+	expect(view.lastFrame()).toContain("CHANGE ACTIVE ZONE");
 	view.stdin.write("\u001B");
 	await new Promise(resolve => setTimeout(resolve, 20));
 	expect(used).toEqual([]);
-	view.stdin.write("\u001B[C");
+	view.stdin.write("\r");
 	await new Promise(resolve => setTimeout(resolve, 20));
 	view.stdin.write(" ");
 	await new Promise(resolve => setTimeout(resolve, 20));

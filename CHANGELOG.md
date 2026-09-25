@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-25
+
+### Changed
+- Left/Right now only move the zone cursor. Enter requests the selected zone
+  as the new Scope, preventing accidental default-zone changes while browsing.
+- The zone list explicitly marks the current Scope separately from its cursor,
+  and the tunnel pane identifies that it still reflects the current Scope.
+
 ## [0.13.0] - 2026-09-25
 
 ### Added

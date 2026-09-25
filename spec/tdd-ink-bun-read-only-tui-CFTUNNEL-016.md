@@ -42,11 +42,12 @@ not silently fall back to development code.
   with non-secret credential-binding state.
 - The dashboard begins at the first registered local zone; its Scope is always
   a real zone, never an all-zones virtual selection.
-- Switching Scope renders an explicit confirmation. On confirmation the Bun
-  adapter invokes `zone use <zone> --output json`, so the displayed Scope and
-  the CLI default zone remain synchronized. A user may disable this prompt for
-  the current TUI session only; no preference is persisted before the future
-  settings screen exists.
+- Left/Right move a zone-list cursor without changing context. Enter on the
+  highlighted zone renders an explicit Scope-change confirmation. On
+  confirmation the Bun adapter invokes `zone use <zone> --output json`, so the
+  displayed Scope and the CLI default zone remain synchronized. A user may
+  disable this prompt for the current TUI session only; no preference is
+  persisted before the future settings screen exists.
 - `a` begins an add-zone flow: collect a Cloudflare zone, render the help and
   effects of `zone use` and `zone login`, then register it and begin login.
   `l` independently begins login for the current Scope. Before browser auth,
@@ -108,9 +109,10 @@ Node runtime fallback or selecting another UI framework.
   result without requiring the Cloudflare Dashboard.
 - [ ] Registered zones without local tunnels are visible with an actionable
   empty state; initial Scope is the first registered zone.
-- [ ] Scope changes are explicit, persist through `zone use`, and can be
-  cancelled without changing the default zone. Confirmation suppression ends
-  when the TUI process exits.
+- [ ] Zone browsing does not change Scope. Enter requests an explicit Scope
+  change, which persists through `zone use` and can be cancelled without
+  changing the default zone. Confirmation suppression ends when the TUI
+  process exits.
 - [ ] Adding a zone and standalone current-Scope login both show their command
   help/effects before confirmation. Browser login receives the real terminal,
   and the restarted TUI reports the resulting credential state.
