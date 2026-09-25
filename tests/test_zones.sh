@@ -230,19 +230,21 @@ test_cli_persist_registers_zone_directory() {
 	teardown_mock_home
 }
 
-test_cli_interactive_default_change_registers_zone_directory() {
+test_cli_temporary_zone_never_prompts_or_changes_default() {
 	setup_mock_home
 	printf '%s\n' 'old.example' > "$HOME/.cloudflared/.default_zone"
 	mkdir -p "$HOME/.cloudflared/zones/old.example"
 
-	local output
+	local output rc=0
 	output="$(
-		printf '%s\n' y | CFTUNNEL_SKIP_MAIN="" RUN_USER="cftunnel-test-user-that-does-not-exist" \
+		CFTUNNEL_SKIP_MAIN="" RUN_USER="cftunnel-test-user-that-does-not-exist" \
 			"$PROJECT_DIR/run.sh" --zone "New.Example." list 2>&1
-	)"
-	assert_contains "$output" "Default zone changed to 'new.example'" "interactive persistence output"
-	assert_dir_exists "$HOME/.cloudflared/zones/new.example"
-	assert_eq "new.example" "$(cat "$HOME/.cloudflared/.default_zone")" "interactive canonical default"
+	)" || rc=$?
+	assert_eq "0" "$rc" "temporary zone command exit"
+	assert_contains "$output" "[zone] new.example" "temporary selected zone output"
+	assert_not_contains "$output" "Do you want to make" "temporary zone must not prompt"
+	assert_eq "old.example" "$(cat "$HOME/.cloudflared/.default_zone")" "temporary zone must preserve default"
+	assert_dir_not_exists "$HOME/.cloudflared/zones/new.example"
 
 	teardown_mock_home
 }

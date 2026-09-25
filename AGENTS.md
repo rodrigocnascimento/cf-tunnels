@@ -15,7 +15,10 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 
 ## Project Type
 
-No build system, no package manager, no test runner, no CI. Verification is manual + `bash -n`.
+The hardened management core is Bash. The optional read-only TUI lives in
+`packages/tui/` and uses Ink + React/TypeScript on Bun; it is a separate
+subprocess client of cftunnel's JSON contracts. Core verification is manual +
+`bash -n`; TUI verification uses `cd packages/tui && bun run typecheck && bun test`.
 
 ## Documentation Policy
 

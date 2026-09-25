@@ -33,9 +33,9 @@
 
 ## Overview
 
-A TUI is planned for `cftunnel`, built with [OpenTUI](https://github.com/anomalyco/opentui)
-(a Zig-core, TypeScript-bound terminal UI library requiring Bun) instead of a
-pure-JS framework like Ink. This TDD is the outcome of a design discussion
+A TUI is planned for `cftunnel`, built with [Ink](https://github.com/vadimdemedes/ink)
+and React in TypeScript. Bun is the TUI runtime, package manager, test runner,
+and operational subprocess layer. This TDD is the outcome of a design discussion
 about how that TUI should talk to the existing bash `cftunnel` core, held
 **before any implementation work started**. Nothing in this document has been
 built. It exists so the decision and its reasoning are not lost between now
@@ -43,10 +43,11 @@ and whenever the TUI work actually begins.
 
 Two architectural options were discussed:
 
-- **Option A** — the TUI runs as a separate Bun process and drives `cftunnel`
-  as a subprocess, the same way `cftunnel` itself already drives `cloudflared`
-  and `systemctl`. `cftunnel` remains the single, already-hardened
-  implementation; the TUI is a thin view + orchestration layer.
+- **Option A** — the Ink/React TUI runs in a separate Bun process. Its Bun
+  operational layer drives `cftunnel` as a subprocess, the same way
+  `cftunnel` itself already drives `cloudflared` and `systemctl`. `cftunnel`
+  remains the single, already-hardened implementation; the TUI is a thin view
+  + orchestration layer.
 - **Option B** — port the core logic (`lib/tunnel.sh`, `lib/zone.sh`,
   `lib/cloudflared.sh`) to TypeScript/Bun so the TUI calls functions directly,
   in-process, with no subprocess boundary to `cftunnel` itself.
@@ -130,8 +131,7 @@ machine-readable contract. This document specifies (b).
 ### Non-Goals
 
 - Building the TUI itself.
-- Deciding OpenTUI vs. any alternative TUI framework (already decided:
-  OpenTUI).
+- Deciding the TUI framework (already decided: Ink + React on Bun).
 - Implementing Option B.
 - Changing any existing fail-closed validation behavior from CFTUNNEL-004,
   -007, -008, or the locale fixes in `d17f2a8`/CFTUNNEL-009.
@@ -170,7 +170,7 @@ establish, before the TUI has rendered a single frame. Nothing about
 
 ```text
 ┌─────────────────────────────┐
-│   TUI process (Bun/OpenTUI) │
+│   Ink/React TUI (Bun)       │
 │                              │
 │  - renders panels            │
 │  - polls / re-invokes        │
@@ -416,11 +416,11 @@ Not authorized by this document. Recorded for the future implementer.
 
 | Item | Reason |
 |------|--------|
-| Any TUI/OpenTUI/Bun code | Belongs to a separate TDD once TUI implementation starts |
+| Any Ink/React/Bun TUI code | Belongs to a separate TDD once TUI implementation starts |
 | Implementing Option B | Explicitly deferred; this document only records it as a future path |
 | A daemon/socket/long-running `cftunnel` server mode | Every interaction remains a discrete process invocation, consistent with the rest of the project |
 | Changing any fail-closed validation behavior | Out of scope by design goal 1 — this is a surface-area addition, not a logic change |
-| Choosing between OpenTUI and alternatives | Already decided outside this document |
+| Choosing between Ink and alternatives | Already decided outside this document |
 | Automatic installer changes for the sudoers rule | Deployment step is documented, not automated, given the security sensitivity of sudoers files |
 | Implementing CP-01 through CP-04 | Explicitly not started per this conversation — "não vamos começar nada agora" |
 

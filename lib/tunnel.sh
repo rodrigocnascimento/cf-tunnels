@@ -441,8 +441,24 @@ op_stop() {
 op_status() {
 	[[ -n "${NAME:-}" ]] || die "--name is required"
 	NAME="$(slugify "$NAME")"
-	if [[ $EUID -ne 0 ]]; then sudo -v || die "needs sudo permission"; fi
-	systemctl status "$(instance_unit "$NAME")"
+	local unit
+	unit="$(instance_unit "$NAME")"
+	if json_enabled; then
+		need jq
+		local status scope_zone data
+		status="$(systemd_unit_status "$unit")"
+		scope_zone="$(json_nullable_string "${ZONE:-}")"
+		data="$(jq -cn \
+			--arg name "$NAME" \
+			--arg unit "$unit" \
+			--arg status "$status" \
+			--arg checked_at "$(utc_now)" \
+			--argjson zone "$scope_zone" \
+			'{zone: $zone, name: $name, unit: $unit, status: $status, source: "systemd", checked_at: $checked_at}')"
+		json_success "tunnel.status" "$data"
+		return
+	fi
+	systemctl status "$unit"
 }
 op_logs() {
 	[[ -n "${NAME:-}" ]] || die "--name is required"
@@ -536,7 +552,63 @@ ingress_routes_from_yaml() {
 	' "$yaml"
 }
 
+op_list_json() {
+	need jq
+	local entries=()
+	local yaml
+	while IFS= read -r -d '' yaml; do
+		local zone_name name raw_uuid uuid unit status routes config_mode credential_path credential_mode issues
+		zone_name="$(basename "$(dirname "$yaml")")"
+		name="$(basename "$yaml" .yml)"
+		raw_uuid="$(tunnel_uuid_from_yaml "$yaml")"
+		uuid="$(validate_tunnel_uuid "$raw_uuid" 2>/dev/null || true)"
+		unit="cloudflared@${zone_name}_${name}.service"
+		status="$(systemd_unit_status "$unit")"
+		config_mode="$(file_mode_or_null "$yaml")"
+		credential_path="$(credentials_file_from_yaml "$yaml")"
+		credential_mode="$(file_mode_or_null "$credential_path")"
+		routes='[]'
+
+		local hostname service route
+		while IFS=$'\t' read -r hostname service; do
+			[[ -n "$hostname" && -n "$service" ]] || continue
+			route="$(jq -cn --arg hostname "$hostname" --arg service "$service" '{hostname: $hostname, service: $service}')"
+			routes="$(jq -cn --argjson routes "$routes" --argjson route "$route" '$routes + [$route]')"
+		done < <(ingress_routes_from_yaml "$yaml")
+		issues='[]'
+		[[ -n "$uuid" ]] || issues="$(jq -cn --argjson issues "$issues" '$issues + ["tunnel UUID is missing or invalid"]')"
+		[[ -n "$credential_mode" ]] || issues="$(jq -cn --argjson issues "$issues" '$issues + ["tunnel credential JSON is missing or unreadable"]')"
+		[[ "$routes" != '[]' ]] || issues="$(jq -cn --argjson issues "$issues" '$issues + ["no hostname routes were found in the YAML"]')"
+
+		entries+=("$(jq -cn \
+			--arg zone "$zone_name" \
+			--arg name "$name" \
+			--arg uuid "$uuid" \
+			--arg unit "$unit" \
+			--arg status "$status" \
+			--arg config_mode "$config_mode" \
+			--arg credential_mode "$credential_mode" \
+			--argjson issues "$issues" \
+			--argjson routes "$routes" \
+			'{zone: $zone, name: $name, uuid: (if $uuid == "" then null else $uuid end), unit: $unit, status: $status, config: {yaml: {present: ($config_mode != ""), mode: (if $config_mode == "" then null else $config_mode end)}, credential: {present: ($credential_mode != ""), mode: (if $credential_mode == "" then null else $credential_mode end)}, issues: $issues}, routes: $routes}')")
+	done < <(list_yaml_files)
+
+	local tunnels scope_zone data
+	if [[ ${#entries[@]} -eq 0 ]]; then
+		tunnels='[]'
+	else
+		tunnels="$(printf '%s\n' "${entries[@]}" | jq -cs '.')"
+	fi
+	scope_zone="$(json_nullable_string "${ZONE:-}")"
+	data="$(jq -cn --arg checked_at "$(utc_now)" --argjson scope_zone "$scope_zone" --argjson tunnels "$tunnels" '{scope_zone: $scope_zone, listed_at: $checked_at, tunnels: $tunnels}')"
+	json_success "tunnel.list" "$data"
+}
+
 op_list() {
+	if json_enabled; then
+		op_list_json
+		return
+	fi
 	if [[ -n "$ZONE" ]]; then
 		echo "[zone] $ZONE"
 	fi
@@ -559,12 +631,8 @@ op_list() {
 
 		local unit="cloudflared@${zone_name}_${name}.service"
 
-		local status="inactive"
-		if systemctl is-active --quiet "$unit" 2>/dev/null; then
-			status="active"
-		elif systemctl is-enabled --quiet "$unit" 2>/dev/null; then
-			status="enabled"
-		fi
+		local status
+		status="$(systemd_unit_status "$unit")"
 
 		local unit_display="@${unit#*@}"
 		local hostname full_service

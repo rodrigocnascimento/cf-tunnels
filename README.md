@@ -33,6 +33,7 @@ Your server connects outward to Cloudflare, so the local application does not ne
 - **Safe defaults** — hostname containment, private file modes, fail-closed removal, and crash-recoverable credential refresh.
 - **Automatic routing** — creates the Cloudflare tunnel and DNS route, with `--no-dns` when DNS is managed elsewhere.
 - **Local truth** — `cftunnel list` reports routes from local YAML without requiring Cloudflare or network access.
+- **Operational TUI** — an optional Ink + Bun dashboard presents tunnel summaries, local routes, systemd state, and explicit health checks through the same hardened CLI contracts.
 - **Multiple origin types** — HTTP/HTTPS, SSH, and generic TCP services.
 
 ## A first look
@@ -51,6 +52,7 @@ cftunnel add \
   --service http://localhost:3000
 
 cftunnel list
+cftunnel tui-dev
 ```
 
 The normal lifecycle is:
@@ -79,6 +81,7 @@ The complete documentation lives in the **[cftunnel Wiki](https://github.com/rod
 - [Zones and Credentials](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Zones-and-Credentials)
 - [Tunnel Types](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Tunnel-Types)
 - [Operations and Troubleshooting](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Operations-and-Troubleshooting)
+- [Operational TUI](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Operational-TUI)
 - [Security Model](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Security-Model)
 
 ## Project status

@@ -112,6 +112,69 @@ unset_default_zone() {
 	rm -f -- "$DEFAULT_ZONE_FILE"
 }
 
+zone_credential_state() {
+	local zone_name="${1:-}" dir cert metadata cert_mode metadata_mode metadata_zone credential_type expected_hash actual_hash
+	dir="$(zone_dir_for "$zone_name")"
+	cert="$dir/cert.pem"
+	metadata="$dir/zone.json"
+
+	if [[ ! -f "$cert" || -L "$cert" || ! -r "$cert" || ! -f "$metadata" || -L "$metadata" || ! -r "$metadata" ]]; then
+		printf '%s\n' missing
+		return 0
+	fi
+	cert_mode="$(stat -c '%a' -- "$cert" 2>/dev/null || true)"
+	metadata_mode="$(stat -c '%a' -- "$metadata" 2>/dev/null || true)"
+	[[ "$cert_mode" == 600 && "$metadata_mode" == 600 ]] || { printf '%s\n' invalid; return 0; }
+	validate_tunnel_token_file "$cert" >/dev/null 2>&1 || { printf '%s\n' invalid; return 0; }
+	metadata_zone="$(zone_metadata_value "$metadata" zone)"
+	credential_type="$(zone_metadata_value "$metadata" credential_type)"
+	expected_hash="$(zone_metadata_value "$metadata" certificate_sha256)"
+	[[ "$metadata_zone" == "$zone_name" && "$credential_type" == argo_tunnel_token && "$expected_hash" =~ ^[0-9a-f]{64}$ ]] || { printf '%s\n' invalid; return 0; }
+	actual_hash="$(credential_sha256 "$cert" 2>/dev/null || true)"
+	[[ -n "$actual_hash" && "$actual_hash" == "$expected_hash" ]] || { printf '%s\n' invalid; return 0; }
+	printf '%s\n' ready
+}
+
+op_zone_list_json() {
+	need jq
+	local zones_dir="$HOME_DIR/.cloudflared/zones" default_zone
+	default_zone="$(load_default_zone)" || return 1
+	local entries=() zone_dir zone_name cert metadata cert_mode metadata_mode credential_state yaml tunnel_count route_count hostname service
+	[[ -d "$zones_dir" ]] || zones_dir=""
+	if [[ -n "$zones_dir" ]]; then
+		while IFS= read -r -d '' zone_dir; do
+			zone_name="$(basename "$zone_dir")"
+			validate_zone_name "$zone_name" >/dev/null 2>&1 || continue
+			cert="$zone_dir/cert.pem"; metadata="$zone_dir/zone.json"
+			cert_mode="$(file_mode_or_null "$cert")"
+			metadata_mode="$(file_mode_or_null "$metadata")"
+			credential_state="$(zone_credential_state "$zone_name")"
+			tunnel_count=0; route_count=0
+			while IFS= read -r -d '' yaml; do
+				((tunnel_count++)) || true
+				while IFS=$'\t' read -r hostname service; do
+					[[ -n "$hostname" && -n "$service" ]] && ((route_count++)) || true
+				done < <(ingress_routes_from_yaml "$yaml")
+			done < <(find "$zone_dir" -mindepth 1 -maxdepth 1 -type f -name '*.yml' -print0 2>/dev/null | sort -z)
+			entries+=("$(jq -cn \
+				--arg name "$zone_name" \
+				--arg state "$credential_state" \
+				--arg cert_mode "$cert_mode" \
+				--arg metadata_mode "$metadata_mode" \
+				--argjson is_default "$( [[ "$zone_name" == "$default_zone" ]] && printf true || printf false )" \
+				--argjson tunnel_count "$tunnel_count" \
+				--argjson route_count "$route_count" \
+				'{name: $name, is_default: $is_default, tunnel_count: $tunnel_count, route_count: $route_count, credential: {state: $state, cert_present: ($cert_mode != ""), cert_mode: (if $cert_mode == "" then null else $cert_mode end), metadata_present: ($metadata_mode != ""), metadata_mode: (if $metadata_mode == "" then null else $metadata_mode end)}}')")
+		done < <(find "$zones_dir" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)
+	fi
+
+	local zones data default_json
+	if [[ ${#entries[@]} -eq 0 ]]; then zones='[]'; else zones="$(printf '%s\n' "${entries[@]}" | jq -cs '.')"; fi
+	default_json="$(json_nullable_string "$default_zone")"
+	data="$(jq -cn --argjson default_zone "$default_json" --argjson zones "$zones" '{default_zone: $default_zone, zones: $zones}')"
+	json_success "zone.list" "$data"
+}
+
 zone_metadata_file() {
 	local zone_name="${1:-${ZONE:-}}"
 	if [[ -n "$zone_name" ]]; then
@@ -542,6 +605,14 @@ op_zone() {
 	shift || true
 
 	case "$subcmd" in
+		list)
+			[[ $# -eq 0 ]] || die "Usage: cftunnel zone list"
+			if json_enabled; then
+				op_zone_list_json
+				return
+			fi
+			echo "Use: cftunnel zone list --output json"
+			;;
 		use|set|switch)
 			local target="${1:-}"
 			[[ -n "$target" ]] || die "Usage: cftunnel zone use <zone-name>"
@@ -549,11 +620,26 @@ op_zone() {
 			if ! cleaned="$(register_zone "$target")"; then
 				return 1
 			fi
+			if json_enabled; then
+				need jq
+				local data
+				data="$(jq -cn --arg zone "$cleaned" '{zone: $zone, persisted: true, directory_created: true}')"
+				json_success "zone.use" "$data"
+				return
+			fi
 			echo "✅ Zone '$cleaned' registered and set as default."
 			;;
 		current|show)
 			local current
 			current="$(load_default_zone)" || return 1
+			if json_enabled; then
+				need jq
+				local current_json data
+				current_json="$(json_nullable_string "$current")"
+				data="$(jq -cn --argjson default_zone "$current_json" '{default_zone: $default_zone}')"
+				json_success "zone.current" "$data"
+				return
+			fi
 			if [[ -n "$current" ]]; then
 				echo "Current default (persistent) zone: $current"
 				echo "All commands without --zone will use this one."
@@ -563,10 +649,23 @@ op_zone() {
 			fi
 			;;
 		unset|clear|remove)
+			local previous
+			previous="$(load_default_zone)" || return 1
 			unset_default_zone
+			if json_enabled; then
+				need jq
+				local previous_json data
+				previous_json="$(json_nullable_string "$previous")"
+				data="$(jq -cn --argjson previous_default_zone "$previous_json" '{previous_default_zone: $previous_default_zone, default_zone: null}')"
+				json_success "zone.unset" "$data"
+				return
+			fi
 			echo "Default zone has been cleared."
 			;;
 		login)
+			if json_enabled; then
+				die "zone login does not yet support --output json"
+			fi
 			local active_zone="${ZONE:-}"
 			if [[ -z "$active_zone" ]]; then
 				local zones=()
