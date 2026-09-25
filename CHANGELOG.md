@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-25
+
+### Added
+- Added TUI zone registration through `a`: it collects a Cloudflare zone,
+  displays the `zone use` and `zone login` command help/effects for explicit
+  approval, then registers the zone and begins browser authentication.
+- Added `l` to explicitly authenticate the current Scope. Ink unmounts before
+  the interactive CLI login owns the terminal and is started again after it
+  exits, so browser authentication remains visible and credential output is
+  never parsed by the dashboard.
+
+### Tests
+- Added Ink coverage for registration-before-login and standalone Scope login.
+
+## [0.12.0] - 2026-09-25
+
+### Changed
+- The TUI now begins at the first registered local zone rather than an
+  all-zones virtual scope. Its scope is always a real local zone.
+- Changing the TUI scope requires explicit confirmation and invokes
+  `zone use` only after approval, synchronizing the CLI default zone with the
+  displayed scope. The optional confirmation bypass lasts only for the current
+  TUI session.
+- The dashboard header displays the negotiated cftunnel application version.
+
+### Tests
+- Added adapter coverage for the `zone.use` JSON contract and updated the Ink
+  rendering test for a real-zone initial scope.
+
 ## [0.11.0] - 2026-09-25
 
 ### Added

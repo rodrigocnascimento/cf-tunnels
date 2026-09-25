@@ -26,6 +26,7 @@ export type Zone = {
 	credential: {state: "ready" | "missing" | "invalid"; cert_present: boolean; cert_mode: string | null; metadata_present: boolean; metadata_mode: string | null};
 };
 export type ZoneInventory = {default_zone: string | null; zones: Zone[]};
+export type ZoneUse = {zone: string; persisted: true; directory_created: boolean};
 export type Health = {
 	scope_zone: string | null;
 	checked_at: string;

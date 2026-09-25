@@ -1,8 +1,8 @@
 # Technical Design Document — CFTUNNEL-016
 
 > **Issue:** CFTUNNEL-016
-> **Title:** Ink + Bun Read-Only Operational TUI
-> **Version:** 0.6.0 → 0.11.0
+> **Title:** Ink + Bun Operational TUI
+> **Version:** 0.6.0 → 0.13.0
 > **Status:** Approved for implementation
 > **Date:** 2026-09-25
 
@@ -34,14 +34,24 @@ entry point with `CFTUNNEL_BIN` bound to that same checkout's `run.sh`.
 `cftunnel tui` is reserved for a future packaged production artifact and must
 not silently fall back to development code.
 
-## Read-only MVP
+## Operational dashboard
 
 - Capability negotiation on startup; fail clearly on an unknown/missing
   contract.
 - Discovery of every registered local zone, including zones without routes,
   with non-secret credential-binding state.
-- An all-zones aggregate view and temporary dashboard zone selector. Selection
-  never changes the persistent default zone.
+- The dashboard begins at the first registered local zone; its Scope is always
+  a real zone, never an all-zones virtual selection.
+- Switching Scope renders an explicit confirmation. On confirmation the Bun
+  adapter invokes `zone use <zone> --output json`, so the displayed Scope and
+  the CLI default zone remain synchronized. A user may disable this prompt for
+  the current TUI session only; no preference is persisted before the future
+  settings screen exists.
+- `a` begins an add-zone flow: collect a Cloudflare zone, render the help and
+  effects of `zone use` and `zone login`, then register it and begin login.
+  `l` independently begins login for the current Scope. Before browser auth,
+  Ink unmounts and the regular CLI owns the terminal; the TUI restarts after
+  that command exits and refreshes credential state.
 - A dashboard layout with summary metrics, a tunnel navigator, and a selected
   tunnel detail panel with routes, unit, UUID, and local systemd status.
 - Explicit selected-tunnel health check, including DNS observations.
@@ -62,7 +72,10 @@ not silently fall back to development code.
 
 ## Non-goals
 
-- Create, remove, start, stop, zone login, or any sudo-bearing action.
+- Create, remove, start, stop, zone login, `zone unset`, or any sudo-bearing
+  action other than the explicitly confirmed zone registration/scope change.
+  Zone login remains the regular CLI browser-auth process, temporarily handed
+  the terminal by the TUI rather than implemented inside Ink.
 - Password prompting, sudo authentication, direct API access, remote-managed
   tunnels, persistence, background monitoring, or alerts.
 - Replacing the human CLI.
@@ -86,13 +99,21 @@ Node runtime fallback or selecting another UI framework.
 ## Acceptance criteria
 
 - [ ] `bun run src/index.tsx` launches an Ink TUI under Bun.
-- [ ] The UI is read-only and never invokes sudo, Cloudflare, or systemd.
+- [ ] The UI never invokes sudo, Cloudflare, or systemd directly. It can only
+  invoke the local, non-privileged `zone use` JSON contract after explicit
+  confirmation.
 - [ ] The adapter uses only CFTUNNEL-015 JSON commands and validates results.
 - [ ] Missing capabilities and subprocess failures are actionable in the UI.
 - [ ] The dashboard presents the selected tunnel's routes and explicit health
   result without requiring the Cloudflare Dashboard.
 - [ ] Registered zones without local tunnels are visible with an actionable
-  empty state; the all-zones view is available without mutating persistence.
+  empty state; initial Scope is the first registered zone.
+- [ ] Scope changes are explicit, persist through `zone use`, and can be
+  cancelled without changing the default zone. Confirmation suppression ends
+  when the TUI process exits.
+- [ ] Adding a zone and standalone current-Scope login both show their command
+  help/effects before confirmation. Browser login receives the real terminal,
+  and the restarted TUI reports the resulting credential state.
 - [ ] Health can be checked per tunnel or per selected scope, and its timestamp
   and partial operational observations remain visible in the dashboard.
 - [ ] Narrow terminals expose navigation and detail through Tab-switchable

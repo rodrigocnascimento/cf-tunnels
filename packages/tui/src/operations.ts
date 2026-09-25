@@ -1,4 +1,4 @@
-import type {CapabilityData, Health, Inventory, JsonResponse, ZoneContext, ZoneInventory} from "./contracts.js";
+import type {CapabilityData, Health, Inventory, JsonResponse, ZoneContext, ZoneInventory, ZoneUse} from "./contracts.js";
 
 export interface ProcessRunner {
 	run(args: string[]): Promise<{exitCode: number; stdout: string; stderr: string}>;
@@ -18,15 +18,16 @@ export class BunProcessRunner implements ProcessRunner {
 	}
 }
 
-export interface ReadOnlyOperations {
+export interface TuiOperations {
 	capabilities(): Promise<CapabilityData>;
 	zoneCurrent(): Promise<ZoneContext>;
 	zoneList(): Promise<ZoneInventory>;
+	zoneUse(zone: string): Promise<ZoneUse>;
 	list(zone?: string | null): Promise<Inventory>;
 	health(name?: string, zone?: string | null): Promise<Health>;
 }
 
-export class CftunnelOperations implements ReadOnlyOperations {
+export class CftunnelOperations implements TuiOperations {
 	constructor(private readonly runner: ProcessRunner = new BunProcessRunner()) {}
 
 	async capabilities() {
@@ -39,6 +40,10 @@ export class CftunnelOperations implements ReadOnlyOperations {
 
 	async zoneList() {
 		return this.call<ZoneInventory>("zone.list", ["zone", "list", "--output", "json"]);
+	}
+
+	async zoneUse(zone: string) {
+		return this.call<ZoneUse>("zone.use", ["zone", "use", zone, "--output", "json"]);
 	}
 
 	async list(zone: string | null = null) {
