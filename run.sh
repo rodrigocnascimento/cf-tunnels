@@ -36,7 +36,7 @@ Global options:
   --version       Show the cftunnel version and exit
 
 Commands:
-  add           --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--no-dns]
+  add           --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--origin-server-name NAME] [--no-tls-verify|--verify-tls] [--no-dns] [--plan|--yes]
   remove        --name NAME
   start|stop|status|logs   --name NAME
   list          List local hostname routes in the active zone (or all zones if none)
@@ -195,21 +195,31 @@ TUNNEL_HOSTNAME=""
 TYPE=""
 SERVICE=""
 NO_DNS=false
+ADD_PLAN=false
+ADD_YES=false
+ORIGIN_SERVER_NAME=""
+TLS_VERIFY=true
+TLS_VERIFY_SET=false
 
 parse_add_args() {
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
-		--hostname | --type | --service | --name)
+		--hostname | --type | --service | --name | --origin-server-name)
 			[[ $# -ge 2 ]] || die "$1 requires a value"
 			case "$1" in
 			--hostname) TUNNEL_HOSTNAME="$2" ;;
 			--type) TYPE="$2" ;;
 			--service) SERVICE="$2" ;;
 			--name) NAME="$2" ;;
+			--origin-server-name) ORIGIN_SERVER_NAME="$2" ;;
 			esac
 			shift 2
 			;;
 		--no-dns) NO_DNS=true; shift ;;
+		--no-tls-verify) [[ "$TLS_VERIFY_SET" == false ]] || die "choose only one of --no-tls-verify or --verify-tls"; TLS_VERIFY=false; TLS_VERIFY_SET=true; shift ;;
+		--verify-tls) [[ "$TLS_VERIFY_SET" == false ]] || die "choose only one of --no-tls-verify or --verify-tls"; TLS_VERIFY=true; TLS_VERIFY_SET=true; shift ;;
+		--plan) ADD_PLAN=true; shift ;;
+		--yes) ADD_YES=true; shift ;;
 		-h | --help) print_usage; exit 0 ;;
 		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
 		esac

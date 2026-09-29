@@ -41,12 +41,19 @@ validate_add_input() {
 	*) die "--type invalid: $TYPE (use ssh|http|tcp)" ;;
 	esac
 
+	if [[ -n "${ORIGIN_SERVER_NAME:-}" || "${TLS_VERIFY_SET:-false}" == true ]]; then
+		[[ "$TYPE" == "http" && "$SERVICE" == https://* ]] || die "--origin-server-name and TLS verification options require an HTTPS HTTP origin"
+	fi
+	if [[ -n "${ORIGIN_SERVER_NAME:-}" ]]; then
+		ORIGIN_SERVER_NAME="$(validate_zone_name "$ORIGIN_SERVER_NAME")" || return 1
+	fi
+
 	case "$TYPE" in
 	ssh)
 		[[ "$SERVICE" == ssh://* ]] || die "--type ssh requires --service ssh://... (e.g.: ssh://localhost:22)"
 		;;
 	http)
-		[[ "$SERVICE" == http://* ]] || die "--type http requires --service http://... (e.g.: http://localhost:4000)"
+		[[ "$SERVICE" == http://* || "$SERVICE" == https://* ]] || die "--type http requires --service http://... or https://... (e.g.: http://localhost:4000)"
 		;;
 	tcp)
 		[[ "$SERVICE" == tcp://* ]] || die "--type tcp requires --service tcp://... (e.g.: tcp://localhost:6379)"
@@ -56,6 +63,94 @@ validate_add_input() {
 
 validate_flags_add() {
 	validate_add_input
+}
+
+prepare_add_target() {
+	local base_domain default_name
+	base_domain="$(echo "$TUNNEL_HOSTNAME" | rev | cut -d. -f1-2 | rev)"
+	default_name="${base_domain}-${TYPE}"
+	default_name="$(echo "$default_name" | tr '[:upper:]' '[:lower:]' | sed -E 's/\./-/g')"
+	NAME="${NAME:-$default_name}"
+	NAME="$(slugify "$NAME")"
+	[[ -n "$NAME" ]] || die "tunnel name is empty after sanitization"
+}
+
+op_add_plan() {
+	validate_flags_add
+	prepare_add_target
+	need jq
+	local unit yaml existing_yaml existing_hostname data tls_server_name
+	unit="$(instance_unit "$NAME")"
+	yaml="$(yaml_path_for "$NAME")"
+	existing_yaml=false
+	existing_hostname=false
+	if [[ -f "$yaml" ]]; then
+		existing_yaml=true
+		if grep -qF "hostname: \"${TUNNEL_HOSTNAME}\"" "$yaml" 2>/dev/null; then
+			existing_hostname=true
+		fi
+	fi
+	if json_enabled; then
+		data="$(jq -cn \
+			--arg zone "${ZONE:-}" \
+			--arg hostname "$TUNNEL_HOSTNAME" \
+			--arg type "$TYPE" \
+			--arg service "$SERVICE" \
+			--arg name "$NAME" \
+			--arg unit "$unit" \
+			--arg yaml "$yaml" \
+			--arg origin_server_name "${ORIGIN_SERVER_NAME:-}" \
+			--argjson tls_verify "${TLS_VERIFY:-true}" \
+			--argjson existing_yaml "$existing_yaml" \
+			--argjson existing_hostname "$existing_hostname" \
+			'{zone: (if $zone == "" then null else $zone end), hostname: $hostname, type: $type, service: $service, tunnel_name: $name, unit: $unit, yaml: $yaml, existing_tunnel: $existing_yaml, existing_hostname: $existing_hostname, restart_required: $existing_yaml, origin_tls: {server_name: (if $origin_server_name == "" then null else $origin_server_name end), verify: $tls_verify, configured: ($origin_server_name != "" or $tls_verify == false)}, dns: {mode: "automatic"}, privilege: {sudo_required: true}}')"
+		json_success "hostname.add.plan" "$data"
+		return
+	fi
+	echo "Hostname plan: $TUNNEL_HOSTNAME → $SERVICE ($TYPE)"
+	if [[ "$existing_yaml" == true ]]; then
+		echo "Tunnel: $NAME (existing)"
+		echo "Effects: validate ingress, create/update DNS, and restart the service."
+	else
+		echo "Tunnel: $NAME (new)"
+		echo "Effects: validate ingress, create/update DNS, and start the service."
+	fi
+	echo "Unit: $unit"
+	if [[ -n "${ORIGIN_SERVER_NAME:-}" || "${TLS_VERIFY_SET:-false}" == true ]]; then
+		echo "Origin TLS: SNI ${ORIGIN_SERVER_NAME:-service URL hostname}; certificate verification ${TLS_VERIFY}"
+	fi
+}
+
+write_entry_origin_tls() {
+	[[ -n "${ORIGIN_SERVER_NAME:-}" || "${TLS_VERIFY_SET:-false}" == true ]] || return 0
+	echo "    originRequest:"
+	[[ -z "${ORIGIN_SERVER_NAME:-}" ]] || echo "      originServerName: \"${ORIGIN_SERVER_NAME}\""
+	echo "      noTLSVerify: $([[ "${TLS_VERIFY:-true}" == true ]] && echo false || echo true)"
+}
+
+rewrite_ingress_entry_tls() {
+	local entries="$1" target="$2"
+	awk -v target="$target" -v origin="${ORIGIN_SERVER_NAME:-}" -v verify="${TLS_VERIFY:-true}" '
+	function tls() {
+		print "    originRequest:"
+		if (origin != "") print "      originServerName: \"" origin "\""
+		print "      noTLSVerify: " (verify == "true" ? "false" : "true")
+	}
+	/^  - / {
+		if (selected && !emitted) { tls(); emitted=1 }
+		selected = ($0 == "  - hostname: \"" target "\"")
+		skipping=0; emitted=0
+		print
+		next
+	}
+	selected && /^    originRequest:/ { skipping=1; next }
+	selected && skipping {
+		if ($0 ~ /^      / || $0 ~ /^$/) next
+		tls(); emitted=1; skipping=0
+	}
+	{ print }
+	END { if (selected && !emitted) tls() }
+	' <<< "$entries"
 }
 
 validate_tunnel_uuid() {
@@ -68,7 +163,20 @@ validate_tunnel_uuid() {
 }
 
 tunnel_discovery_error() {
-	echo "error: Cloudflare tunnel discovery returned an invalid or ambiguous response; no tunnel was created" >&2
+	local reason="${1:-unexpected response}"
+	local explanation
+	case "$reason" in
+	"invalid JSON") explanation="Cloudflare returned malformed JSON" ;;
+	"unexpected JSON shape") explanation="Cloudflare returned JSON in an unexpected shape" ;;
+	"no exact-name match") explanation="Cloudflare returned tunnel entries, but none matched the requested name exactly" ;;
+	"ambiguous exact-name matches") explanation="Cloudflare returned more than one tunnel with the requested name" ;;
+	"missing tunnel UUID") explanation="Cloudflare returned the requested tunnel without a UUID" ;;
+	"invalid tunnel UUID") explanation="Cloudflare returned an invalid tunnel UUID" ;;
+	*) explanation="Cloudflare returned an unusable discovery response" ;;
+	esac
+	echo "error: Cannot safely determine whether the requested tunnel exists: $explanation." >&2
+	echo "No tunnel, DNS record, YAML file, or systemd unit was changed." >&2
+	echo "Check the Activity diagnostic below, or re-run the command in a terminal for complete output." >&2
 	return 1
 }
 
@@ -104,56 +212,39 @@ discover_tunnel_uuid() {
 
 	local summary
 	summary="$(jq -r --arg name "$name" '
-		if type != "array" then
-			"invalid\t\t\t"
+		if . == null then
+			["empty", ""] | @tsv
+		elif type != "array" then
+			["unexpected JSON shape", ""] | @tsv
 		else
 			(map(select(type == "object" and .name == $name))) as $matches
-			| [
-				"ok",
-				(length | tostring),
-				($matches | length | tostring),
-				(if ($matches | length) == 1 and ($matches[0].id | type) == "string"
-					then $matches[0].id
-					else ""
-				end)
-			] | @tsv
+			| if length == 0 then ["empty", ""]
+			  elif ($matches | length) == 0 then ["no exact-name match", ""]
+			  elif ($matches | length) > 1 then ["ambiguous exact-name matches", ""]
+			  elif ($matches[0].id | type) != "string" then ["missing tunnel UUID", ""]
+			  else ["found", $matches[0].id]
+			  end
+			| @tsv
 		end
 	' <<< "$tunnels_json" 2>/dev/null)" || {
-		tunnel_discovery_error
+		tunnel_discovery_error "invalid JSON"
 		return 1
 	}
 
-	local status total match_count id
-	IFS=$'\t' read -r status total match_count id <<< "$summary"
-	[[ "$status" == "ok" ]] || {
-		tunnel_discovery_error
-		return 1
-	}
-
-	case "$match_count" in
-	0)
-		if [[ "$total" == "0" ]]; then
-			return 0
-		fi
-		tunnel_discovery_error
-		return 1
-		;;
-	1)
-		;;
+	local status id
+	IFS=$'\t' read -r status id <<< "$summary"
+	case "$status" in
+	empty) return 0 ;;
+	found) : ;;
 	*)
-		tunnel_discovery_error
+		tunnel_discovery_error "$status"
 		return 1
 		;;
 	esac
 
-	[[ -n "$id" ]] || {
-		tunnel_discovery_error
-		return 1
-	}
-
 	local uuid
 	uuid="$(validate_tunnel_uuid "$id")" || {
-		tunnel_discovery_error
+		tunnel_discovery_error "invalid tunnel UUID"
 		return 1
 	}
 	printf '%s\n' "$uuid"
@@ -175,19 +266,16 @@ create_tunnel_uuid() {
 
 op_add() {
 	validate_flags_add
+	if [[ "${ADD_PLAN:-false}" == true ]]; then
+		op_add_plan
+		return
+	fi
 
 	need cloudflared
 	need jq
 	ensure_template
 
-	local BASE_DOMAIN
-	BASE_DOMAIN="$(echo "$TUNNEL_HOSTNAME" | rev | cut -d. -f1-2 | rev)"
-	local DEFAULT_NAME
-	DEFAULT_NAME="${BASE_DOMAIN}-${TYPE}"
-	DEFAULT_NAME="$(echo "$DEFAULT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/\./-/g')"
-	NAME="${NAME:-$DEFAULT_NAME}"
-	NAME="$(slugify "$NAME")"
-	[[ -n "$NAME" ]] || die "tunnel name is empty after sanitization"
+	prepare_add_target
 	local UNIT
 	UNIT="$(instance_unit "$NAME")"
 	local YAML
@@ -203,11 +291,15 @@ op_add() {
 	echo "    Systemd unit : $UNIT"
 	echo "    YAML file    : $YAML"
 	echo
-	read -p "Continue? [y/N] " -n 1 -r || true
-	echo
-	if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-		echo "Aborted by user."
-		exit 0
+	if [[ "${ADD_YES:-false}" != true ]]; then
+		read -p "Continue? [y/N] " -n 1 -r || true
+		echo
+		if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+			echo "Aborted by user."
+			exit 0
+		fi
+	else
+		echo "[=] --yes: applying previously reviewed hostname plan"
 	fi
 	echo
 
@@ -237,11 +329,33 @@ op_add() {
 
 	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (run 'cloudflared tunnel login' and recreate the tunnel)"
 
+	local existing_yaml=false
 	if [[ -f "$YAML" ]]; then
+		existing_yaml=true
 		local existing_entries
 		existing_entries=$(awk '/^ingress:/{flag=1; next} /  - service: http_status:404/{flag=0} flag' "$YAML" 2>/dev/null || true)
 		if echo "$existing_entries" | grep -qF "hostname: \"${TUNNEL_HOSTNAME}\"" 2>/dev/null; then
 			echo "[=] hostname '${TUNNEL_HOSTNAME}' already in ingress (ok)"
+			if [[ -n "${ORIGIN_SERVER_NAME:-}" || "${TLS_VERIFY_SET:-false}" == true ]]; then
+				echo "[+] updating origin TLS settings for '${TUNNEL_HOSTNAME}'"
+				existing_entries="$(rewrite_ingress_entry_tls "$existing_entries" "$TUNNEL_HOSTNAME")"
+				printf '%s\n' \
+					"tunnel: ${UUID}" \
+					"credentials-file: ${CREDS_JSON}" \
+					"" \
+					'protocol: "http2"' \
+					'edge-ip-version: "4"' \
+					"" \
+					"originRequest:" \
+					'  tcpKeepAlive: "30s"' \
+					'  keepAliveTimeout: "2m"' \
+					'  connectTimeout: "10s"' \
+					"" \
+					"ingress:" \
+					"$existing_entries" \
+					"  - service: http_status:404" > "$YAML"
+				chmod 600 "$YAML"
+			fi
 		else
 			echo "[+] appending hostname '${TUNNEL_HOSTNAME}' to existing ingress"
 			printf '%s\n' \
@@ -260,6 +374,7 @@ op_add() {
 				"$existing_entries" \
 				"  - hostname: \"${TUNNEL_HOSTNAME}\"" \
 				"    service: \"${SERVICE}\"" \
+				"$(write_entry_origin_tls)" \
 				"  - service: http_status:404" > "$YAML"
 			chmod 600 "$YAML"
 		fi
@@ -280,6 +395,7 @@ op_add() {
 			"ingress:" \
 			"  - hostname: \"${TUNNEL_HOSTNAME}\"" \
 			"    service: \"${SERVICE}\"" \
+			"$(write_entry_origin_tls)" \
 			"  - service: http_status:404" > "$YAML"
 		chmod 600 "$YAML"
 	fi
@@ -332,10 +448,14 @@ Or create a CNAME in the Cloudflare dashboard pointing to ${UUID}.cfargotunnel.c
 			echo "[!] DNS still not resolving after 30s"
 			echo "[!] The CNAME record may have been created in Cloudflare, but propagation takes time."
 			echo "[!] You can check the dashboard: https://dash.cloudflare.com/"
-			read -p "Continue anyway? (y/N) " -n 1 -r || true
-			echo
-			if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-				die "Operation cancelled."
+			if [[ "${ADD_YES:-false}" != true ]]; then
+				read -p "Continue anyway? (y/N) " -n 1 -r || true
+				echo
+				if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+					die "Operation cancelled."
+				fi
+			else
+				echo "[=] --yes: continuing after the reviewed DNS propagation timeout"
 			fi
 		elif ! has_cname_lookup; then
 			echo "[✓] DNS resolves: $DNS_RESULT (CNAME verification unavailable without dig/host)"
@@ -347,9 +467,14 @@ Or create a CNAME in the Cloudflare dashboard pointing to ${UUID}.cfargotunnel.c
 		fi
 	fi
 
-	echo "[+] enabling and starting service: $UNIT"
-	sudo systemctl daemon-reload
-	sudo systemctl enable --now "$UNIT"
+	if [[ "$existing_yaml" == true ]]; then
+		echo "[+] restarting service to load updated ingress: $UNIT"
+		sudo systemctl restart "$UNIT"
+	else
+		echo "[+] enabling and starting service: $UNIT"
+		sudo systemctl daemon-reload
+		sudo systemctl enable --now "$UNIT"
+	fi
 	sudo systemctl is-active --quiet "$UNIT" || {
 		sudo systemctl status "$UNIT" || true
 		die "service did not become active"

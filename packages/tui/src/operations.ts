@@ -1,4 +1,4 @@
-import type {CapabilityData, Health, Inventory, JsonResponse, ZoneContext, ZoneInventory, ZoneUse} from "./contracts.js";
+import type {CapabilityData, Health, HostnamePlan, Inventory, JsonResponse, ZoneContext, ZoneInventory, ZoneUse} from "./contracts.js";
 
 export interface ProcessRunner {
 	run(args: string[]): Promise<{exitCode: number; stdout: string; stderr: string}>;
@@ -23,6 +23,7 @@ export interface TuiOperations {
 	zoneCurrent(): Promise<ZoneContext>;
 	zoneList(): Promise<ZoneInventory>;
 	zoneUse(zone: string): Promise<ZoneUse>;
+	hostnamePlan(zone: string, hostname: string, type: HostnamePlan["type"], service: string, originServerName?: string | null, verifyTls?: boolean): Promise<HostnamePlan>;
 	list(zone?: string | null): Promise<Inventory>;
 	health(name?: string, zone?: string | null): Promise<Health>;
 }
@@ -44,6 +45,11 @@ export class CftunnelOperations implements TuiOperations {
 
 	async zoneUse(zone: string) {
 		return this.call<ZoneUse>("zone.use", ["zone", "use", zone, "--output", "json"]);
+	}
+
+	async hostnamePlan(zone: string, hostname: string, type: HostnamePlan["type"], service: string, originServerName?: string | null, verifyTls = true) {
+		const tlsArgs = service.startsWith("https://") ? [verifyTls ? "--verify-tls" : "--no-tls-verify", ...(originServerName ? ["--origin-server-name", originServerName] : [])] : [];
+		return this.call<HostnamePlan>("hostname.add.plan", ["--zone", zone, "add", "--hostname", hostname, "--type", type, "--service", service, ...tlsArgs, "--plan", "--output", "json"]);
 	}
 
 	async list(zone: string | null = null) {

@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-28
+
+### Added
+- HTTPS hostname routes can now configure per-ingress TLS with
+  `--origin-server-name`, `--verify-tls`, or the explicitly unsafe
+  `--no-tls-verify`.
+- The TUI offers an Origin TLS step for HTTPS origins: choose whether to send
+  the public hostname as SNI and whether to verify the origin certificate.
+  The reviewed plan makes both choices visible before apply.
+
+### Fixed
+- Updating an existing hostname with explicit Origin TLS choices replaces only
+  that rule's nested `originRequest`; settings for other hostname rules remain
+  intact.
+
+## [0.14.3] - 2026-09-28
+
+### Fixed
+- The TUI now retains a bounded, redacted copy of stderr from interactive
+  login and hostname-apply commands in its Activity panel, so the dashboard
+  retains actionable failure detail after it redraws.
+- Cloudflare tunnel discovery now reports the safe reason it rejected a
+  successful-but-unusable response (JSON shape, exact-name ambiguity, or UUID
+  issue) while remaining fail-closed and never printing the remote payload.
+
+## [0.14.2] - 2026-09-28
+
+### Fixed
+- Accepted the current `cloudflared tunnel list --name ... --output json`
+  successful no-match response (`null`) as an empty exact-name discovery.
+  Other malformed, ambiguous, or non-zero responses remain fail-closed.
+
+## [0.14.1] - 2026-09-28
+
+### Added
+- The TUI now preserves an in-session Activity log for external login and
+  hostname-apply handoffs. It records the full non-secret invocation, outcome,
+  and exit code so a failed apply is visible after the dashboard returns.
+
+## [0.14.0] - 2026-09-25
+
+### Added
+- Added `cftunnel add --plan --output json`, a local hostname-addition plan
+  exposing the recommended tunnel, DNS action, restart impact, and sudo need.
+- Added the TUI `n` hostname wizard: hostname label, type, origin service, plan
+  review, and explicit apply handoff to `cftunnel add --yes`.
+
+### Fixed
+- Updating an existing tunnel ingress now explicitly restarts its systemd unit
+  so cloudflared loads the changed configuration.
+
 ## [0.13.1] - 2026-09-25
 
 ### Changed

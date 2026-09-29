@@ -7,6 +7,16 @@ source "$PROJECT_DIR/tests/runner-lib.sh"
 # Prevent main logic from executing
 mock_main
 
+test_rewrite_ingress_entry_tls_updates_only_the_selected_hostname() {
+	ORIGIN_SERVER_NAME="app.example.com"
+	TLS_VERIFY=false
+	local entries output
+	entries=$'  - hostname: "app.example.com"\n    service: "https://127.0.0.1:443"\n  - hostname: "other.example.com"\n    service: "http://127.0.0.1:8080"'
+	output="$(rewrite_ingress_entry_tls "$entries" "app.example.com")"
+	assert_contains "$output" $'  - hostname: "app.example.com"\n    service: "https://127.0.0.1:443"\n    originRequest:\n      originServerName: "app.example.com"\n      noTLSVerify: true\n  - hostname: "other.example.com"' "selected hostname gets nested TLS settings"
+	assert_not_contains "$output" $'  - hostname: "other.example.com"\n    originRequest:' "other hostname remains unchanged"
+}
+
 test_yaml_generation_quotes_wildcard() {
 	setup_mock_home
 

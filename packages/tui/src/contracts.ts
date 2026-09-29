@@ -27,6 +27,21 @@ export type Zone = {
 };
 export type ZoneInventory = {default_zone: string | null; zones: Zone[]};
 export type ZoneUse = {zone: string; persisted: true; directory_created: boolean};
+export type HostnamePlan = {
+	zone: string | null;
+	hostname: string;
+	type: "http" | "ssh" | "tcp";
+	service: string;
+	tunnel_name: string;
+	unit: string;
+	yaml: string;
+	existing_tunnel: boolean;
+	existing_hostname: boolean;
+	restart_required: boolean;
+	origin_tls: {server_name: string | null; verify: boolean; configured: boolean};
+	dns: {mode: "automatic"};
+	privilege: {sudo_required: true};
+};
 export type Health = {
 	scope_zone: string | null;
 	checked_at: string;

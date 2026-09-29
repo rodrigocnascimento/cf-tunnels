@@ -153,6 +153,40 @@ test_privilege_check_is_non_interactive() {
 	assert_eq "sudo_auth_required" "$(jq -r '.data.reason' <<< "$output")" "sudo reason"
 }
 
+test_hostname_add_plan_is_local_and_identifies_reused_tunnel_restart() {
+	setup_mock_home
+	OUTPUT_FORMAT=json
+	ZONE="example.com"
+	NAME="example-http"
+	TUNNEL_HOSTNAME="app.example.com"
+	TYPE="http"
+	SERVICE="http://localhost:8080"
+	write_contract_fixture "example.com" "example-http" "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" "old.example.com" "http://localhost:8000"
+	cloudflared() { printf '%s\n' called >&2; return 99; }
+
+	local output
+	output="$(op_add_plan)"
+	assert_eq "hostname.add.plan" "$(jq -r '.operation' <<< "$output")" "hostname plan operation"
+	assert_eq "example-http" "$(jq -r '.data.tunnel_name' <<< "$output")" "recommended tunnel name"
+	assert_eq "true" "$(jq -r '.data.existing_tunnel' <<< "$output")" "existing tunnel is detected"
+	assert_eq "true" "$(jq -r '.data.restart_required' <<< "$output")" "existing tunnel requires restart"
+	assert_eq "true" "$(jq -r '.data.privilege.sudo_required' <<< "$output")" "plan exposes sudo requirement"
+
+	teardown_mock_home
+}
+
+test_hostname_plan_accepts_https_origins_for_http_type() {
+	ZONE="example.com"
+	NAME=""
+	TUNNEL_HOSTNAME="secure.example.com"
+	TYPE="http"
+	SERVICE="https://localhost:8443"
+	OUTPUT_FORMAT=json
+	local output
+	output="$(op_add_plan)"
+	assert_eq "https://localhost:8443" "$(jq -r '.data.service' <<< "$output")" "https origin is preserved"
+}
+
 test_tui_dev_launches_checkout_tui_with_source_cli() {
 	local fake_bin="$HOME/fake-bin" launch_log="$HOME/tui-launch.log"
 	mkdir -p "$fake_bin"

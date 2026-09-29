@@ -70,6 +70,7 @@ op_capabilities() {
 				"tunnel.list": {json: true},
 				"tunnel.status": {json: true},
 				"tunnel.health": {json: true},
+				"hostname.add.plan": {json: true},
 				"privilege.check": {json: true}
 			}
 		}')"

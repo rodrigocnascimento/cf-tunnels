@@ -63,12 +63,12 @@ test_discovery_nonzero_with_empty_array_still_fails() {
 
 test_discovery_rejects_malformed_and_wrong_type_json() {
 	local fixture output rc
-	for fixture in 'not-json' '{}' 'null'; do
+	for fixture in 'not-json' '{}'; do
 		cloudflared() { printf '%s\n' "$fixture"; }
 		rc=0
 		output="$(discover_tunnel_uuid "example-http" 2>&1)" || rc=$?
 		assert_ne "0" "$rc" "invalid discovery response: $fixture"
-		assert_contains "$output" "invalid or ambiguous response" "invalid JSON context"
+		assert_contains "$output" "Cannot safely determine" "invalid JSON context"
 		assert_not_contains "$output" "$fixture" "remote response secrecy"
 	done
 }
@@ -82,6 +82,16 @@ test_discovery_returns_empty_only_for_successful_empty_result() {
 	local result
 	result="$(discover_tunnel_uuid "example-http")"
 	assert_eq "" "$result" "successful absence"
+}
+
+test_discovery_treats_successful_null_as_empty_current_cloudflared_result() {
+	cloudflared() {
+		printf '%s\n' 'null'
+	}
+
+	local result
+	result="$(discover_tunnel_uuid "example-http")"
+	assert_eq "" "$result" "successful null absence"
 }
 
 test_discovery_reuses_exact_match_and_ignores_unrelated_objects() {
@@ -105,7 +115,7 @@ test_discovery_rejects_duplicate_match_and_invalid_uuid() {
 		rc=0
 		output="$(discover_tunnel_uuid "example-http" 2>&1)" || rc=$?
 		assert_ne "0" "$rc" "ambiguous or invalid discovery response"
-		assert_contains "$output" "invalid or ambiguous response" "ambiguous response context"
+		assert_contains "$output" "Cannot safely determine" "ambiguous response context"
 		assert_not_contains "$output" "$fixture" "discovery response secrecy"
 	done
 }
@@ -119,7 +129,7 @@ test_discovery_rejects_nonempty_result_without_exact_match() {
 	local output rc=0
 	output="$(discover_tunnel_uuid "example-http" 2>&1)" || rc=$?
 	assert_ne "0" "$rc" "unexpected filtered result must fail closed"
-	assert_contains "$output" "invalid or ambiguous response" "unexpected result context"
+	assert_contains "$output" "none matched the requested name exactly" "unexpected result context"
 }
 
 test_create_uses_structured_output_and_returns_uuid() {
