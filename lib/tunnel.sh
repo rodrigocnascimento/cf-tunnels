@@ -153,6 +153,85 @@ rewrite_ingress_entry_tls() {
 	' <<< "$entries"
 }
 
+find_hostname_yaml() {
+	local hostname="$1" yaml matches=()
+	while IFS= read -r -d '' yaml; do
+		grep -qF "hostname: \"${hostname}\"" "$yaml" 2>/dev/null && matches+=("$yaml")
+	done < <(find "$(zone_base_dir)" -maxdepth 1 -type f -name '*.yml' -print0 2>/dev/null)
+	[[ ${#matches[@]} -eq 1 ]] || {
+		if [[ ${#matches[@]} -eq 0 ]]; then die "hostname '$hostname' is not configured in zone '$ZONE'"; fi
+		die "hostname '$hostname' is configured by multiple local tunnels; resolve the ambiguity manually"
+	}
+	printf '%s\n' "${matches[0]}"
+}
+
+remove_ingress_entry() {
+	local yaml="$1" hostname="$2" temporary
+	temporary="$(mktemp "${yaml}.remove.XXXXXX")"
+	awk -v target="$hostname" '
+	/^  - / {
+		if ($0 == "  - hostname: \"" target "\"") { skip=1; next }
+		skip=0
+	}
+	!skip { print }
+	' "$yaml" > "$temporary"
+	chmod 600 "$temporary"
+	printf '%s\n' "$temporary"
+}
+
+op_hostname_remove() {
+	local hostname="${REMOVE_HOSTNAME:-}" yaml tunnel_name route_count data temporary backup
+	[[ -n "$hostname" ]] || die "hostname remove requires --hostname"
+	if ! hostname_belongs_to_zone "$hostname" "$ZONE"; then
+		die "hostname '$hostname' does not belong to zone '$ZONE'"
+	fi
+	yaml="$(find_hostname_yaml "$hostname")" || return 1
+	tunnel_name="$(basename "${yaml%.yml}")"
+	route_count="$(grep -cE '^  - hostname: ' "$yaml" || true)"
+	if [[ "$REMOVE_PLAN" == true ]]; then
+		need jq
+		if json_enabled; then
+			data="$(jq -cn --arg zone "$ZONE" --arg hostname "$hostname" --arg tunnel "$tunnel_name" --arg yaml "$yaml" --argjson remaining "$((route_count - 1))" '{zone: $zone, hostname: $hostname, tunnel_name: $tunnel, yaml: $yaml, remaining_hostname_count: $remaining, dns: {action: "unchanged", reason: "DNS deletion requires a separate explicit operation"}, privilege: {sudo_required: true}}')"
+			json_success "hostname.remove.plan" "$data"
+			return
+		fi
+		echo "Remove hostname: $hostname"
+		echo "Tunnel: $tunnel_name"
+		echo "Effects: remove this ingress rule, validate the YAML, and restart the service."
+		echo "DNS: unchanged (record deletion is a separate explicit operation)."
+		return
+	fi
+
+	echo
+	echo ">>> About to remove hostname '$hostname' from tunnel '$tunnel_name'"
+	echo "    YAML file    : $yaml"
+	echo "    DNS         : unchanged"
+	if [[ "$REMOVE_YES" != true ]]; then
+		read -p "Continue? [y/N] " -n 1 -r || true
+		echo
+		[[ "$REPLY" =~ ^[Yy]$ ]] || { echo "Aborted by user."; return 0; }
+	else
+		echo "[=] --yes: applying previously reviewed hostname removal plan"
+	fi
+
+	need cloudflared
+	ensure_template
+	temporary="$(remove_ingress_entry "$yaml" "$hostname")"
+	cloudflared tunnel --config "$temporary" ingress validate || { rm -f "$temporary"; die "removed hostname would produce an invalid ingress configuration"; }
+	if [[ $EUID -ne 0 ]]; then sudo -v || { rm -f "$temporary"; die "needs sudo permission"; }; fi
+	backup="$(mktemp "${yaml}.backup.XXXXXX")"
+	cp -p -- "$yaml" "$backup"
+	mv "$temporary" "$yaml"
+	chmod 600 "$yaml"
+	if ! sudo systemctl restart "$(instance_unit "$tunnel_name")"; then
+		mv "$backup" "$yaml"
+		sudo systemctl restart "$(instance_unit "$tunnel_name")" || true
+		die "service restart failed; restored the previous hostname configuration"
+	fi
+	rm -f "$backup"
+	echo "[+] Removed hostname '$hostname'. DNS was left unchanged."
+}
+
 validate_tunnel_uuid() {
 	local uuid="${1:-}"
 	local LC_ALL=C

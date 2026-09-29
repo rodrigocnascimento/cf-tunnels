@@ -1,7 +1,7 @@
 # Technical Design Document — CFTUNNEL-018
 
 > **Title:** Hostname Management Through Planned Tunnel Updates
-> **Version:** 0.15.0
+> **Version:** 0.16.0
 > **Status:** Approved for implementation
 > **Date:** 2026-09-25
 
@@ -77,8 +77,17 @@ without retaining tokens, Bearer credentials, or PEM blocks.
   after their YAML changes so the updated ingress is actually loaded.
 - TLS choices are scoped to the hostname ingress rule. Updating one rule never
   removes nested origin settings from another hostname rule.
-- Hostname removal and origin editing are deferred; no unsafe partial CRUD is
-  implied by the add workflow.
+- Origin service editing and DNS deletion are deferred; no unsafe partial CRUD
+  is implied by the add workflow.
+
+## Hostname removal
+
+`cftunnel hostname remove --hostname H --plan --output json` resolves `H` to
+exactly one tunnel YAML within the active zone. Its plan identifies the tunnel,
+the remaining local hostname count, the required service restart, and the DNS
+boundary. Apply with `--yes` removes only that hostname's ingress block after
+validating a staged YAML file. It preserves other hostnames, does not delete
+the Cloudflare DNS record, and never deletes the tunnel itself.
 
 ## Acceptance criteria
 

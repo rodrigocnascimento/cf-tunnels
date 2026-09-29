@@ -187,6 +187,29 @@ test_hostname_plan_accepts_https_origins_for_http_type() {
 	assert_eq "https://localhost:8443" "$(jq -r '.data.service' <<< "$output")" "https origin is preserved"
 }
 
+test_hostname_remove_plan_is_local_and_leaves_dns_unchanged() {
+	setup_mock_home
+	OUTPUT_FORMAT=json
+	ZONE="example.com"
+	REMOVE_HOSTNAME="remove.example.com"
+	REMOVE_PLAN=true
+	mkdir -p "$HOME/.cloudflared/zones/example.com"
+	printf '%s\n' \
+		'ingress:' \
+		'  - hostname: "remove.example.com"' \
+		'    service: "http://localhost:8080"' \
+		'  - hostname: "keep.example.com"' \
+		'    service: "http://localhost:8081"' \
+		'  - service: http_status:404' > "$HOME/.cloudflared/zones/example.com/example-http.yml"
+	local output
+	output="$(op_hostname_remove)"
+	assert_eq "hostname.remove.plan" "$(jq -r '.operation' <<< "$output")" "hostname removal operation"
+	assert_eq "remove.example.com" "$(jq -r '.data.hostname' <<< "$output")" "hostname removal target"
+	assert_eq "unchanged" "$(jq -r '.data.dns.action' <<< "$output")" "DNS is explicitly unchanged"
+	assert_eq "1" "$(jq -r '.data.remaining_hostname_count' <<< "$output")" "one route remains"
+	teardown_mock_home
+}
+
 test_tui_dev_launches_checkout_tui_with_source_cli() {
 	local fake_bin="$HOME/fake-bin" launch_log="$HOME/tui-launch.log"
 	mkdir -p "$fake_bin"

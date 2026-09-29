@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-29
+
+### Added
+- Added `cftunnel hostname remove --hostname ... --plan|--yes`, which removes
+  exactly one local ingress hostname from its resolved tunnel and restarts that
+  service after validating the resulting configuration.
+- The TUI can remove a hostname with `[x]`: select a hostname from the current
+  tunnel, review the removal plan, then confirm the operation.
+
+### Safety
+- Hostname removal does not remove the Cloudflare DNS record or the tunnel.
+  The plan explicitly reports this boundary; DNS deletion remains a future,
+  separate operation.
+
 ## [0.15.0] - 2026-09-28
 
 ### Added

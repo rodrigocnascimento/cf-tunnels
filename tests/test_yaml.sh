@@ -17,6 +17,26 @@ test_rewrite_ingress_entry_tls_updates_only_the_selected_hostname() {
 	assert_not_contains "$output" $'  - hostname: "other.example.com"\n    originRequest:' "other hostname remains unchanged"
 }
 
+test_remove_ingress_entry_removes_one_hostname_and_its_nested_settings() {
+	local yaml="$HOME/remove-entry.yml" temporary output
+	printf '%s\n' \
+		'ingress:' \
+		'  - hostname: "remove.example.com"' \
+		'    service: "https://127.0.0.1:443"' \
+		'    originRequest:' \
+		'      originServerName: "remove.example.com"' \
+		'      noTLSVerify: true' \
+		'  - hostname: "keep.example.com"' \
+		'    service: "http://127.0.0.1:8080"' \
+		'  - service: http_status:404' > "$yaml"
+	temporary="$(remove_ingress_entry "$yaml" "remove.example.com")"
+	output="$(cat "$temporary")"
+	assert_not_contains "$output" "remove.example.com" "target hostname and nested TLS settings removed"
+	assert_contains "$output" 'hostname: "keep.example.com"' "other hostname remains"
+	assert_contains "$output" 'service: http_status:404' "fallback remains"
+	rm -f "$yaml" "$temporary"
+}
+
 test_yaml_generation_quotes_wildcard() {
 	setup_mock_home
 

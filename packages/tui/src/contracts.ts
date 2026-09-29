@@ -42,6 +42,15 @@ export type HostnamePlan = {
 	dns: {mode: "automatic"};
 	privilege: {sudo_required: true};
 };
+export type HostnameRemovalPlan = {
+	zone: string;
+	hostname: string;
+	tunnel_name: string;
+	yaml: string;
+	remaining_hostname_count: number;
+	dns: {action: "unchanged"; reason: string};
+	privilege: {sudo_required: true};
+};
 export type Health = {
 	scope_zone: string | null;
 	checked_at: string;

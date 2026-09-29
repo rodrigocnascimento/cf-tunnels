@@ -19,7 +19,7 @@ const clearScreen = () => {
 
 const start = () => {
 	clearScreen();
-	instance = render(<App client={client} onLogin={runLogin} onApplyHostname={applyHostname} activity={activity}/>);
+instance = render(<App client={client} onLogin={runLogin} onApplyHostname={applyHostname} onRemoveHostname={removeHostname} activity={activity}/>);
 };
 
 const runExternal = async (label: string, args: string[]) => {
@@ -42,6 +42,10 @@ const runLogin = async (zone: string) => {
 const applyHostname = async ({zone, hostname, type, service, originServerName, verifyTls}: {zone: string; hostname: string; type: "http" | "ssh" | "tcp"; service: string; originServerName: string | null; verifyTls: boolean}) => {
 	const tlsArgs = service.startsWith("https://") ? [verifyTls ? "--verify-tls" : "--no-tls-verify", ...(originServerName ? ["--origin-server-name", originServerName] : [])] : [];
 	await runExternal(`Hostname ${hostname}`, ["--zone", zone, "add", "--hostname", hostname, "--type", type, "--service", service, ...tlsArgs, "--yes"]);
+};
+
+const removeHostname = async ({zone, hostname}: {zone: string; hostname: string}) => {
+	await runExternal(`Remove hostname ${hostname}`, ["--zone", zone, "hostname", "remove", "--hostname", hostname, "--yes"]);
 };
 
 start();

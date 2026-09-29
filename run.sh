@@ -37,6 +37,7 @@ Global options:
 
 Commands:
   add           --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--origin-server-name NAME] [--no-tls-verify|--verify-tls] [--no-dns] [--plan|--yes]
+  hostname remove --hostname FQDN [--plan|--yes]
   remove        --name NAME
   start|stop|status|logs   --name NAME
   list          List local hostname routes in the active zone (or all zones if none)
@@ -200,6 +201,9 @@ ADD_YES=false
 ORIGIN_SERVER_NAME=""
 TLS_VERIFY=true
 TLS_VERIFY_SET=false
+REMOVE_HOSTNAME=""
+REMOVE_PLAN=false
+REMOVE_YES=false
 
 parse_add_args() {
 	while [[ $# -gt 0 ]]; do
@@ -222,6 +226,18 @@ parse_add_args() {
 		--yes) ADD_YES=true; shift ;;
 		-h | --help) print_usage; exit 0 ;;
 		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
+		esac
+	done
+}
+
+parse_hostname_remove_args() {
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--hostname) [[ $# -ge 2 ]] || die "--hostname requires a value"; REMOVE_HOSTNAME="$2"; shift 2 ;;
+		--plan) REMOVE_PLAN=true; shift ;;
+		--yes) REMOVE_YES=true; shift ;;
+		-h | --help) print_usage; exit 0 ;;
+		*) die "unknown hostname remove flag: $1" ;;
 		esac
 	done
 }
@@ -252,6 +268,11 @@ if [[ "$cmd" == "add" ]]; then
 	validate_add_input
 fi
 
+if [[ "$cmd" == "hostname" && "${1:-}" == "remove" ]]; then
+	shift
+	parse_hostname_remove_args "$@"
+fi
+
 if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
 	current_default="$(load_default_zone)" || exit 1
 	ZONE="$(register_zone "$ZONE")" || exit 1
@@ -271,6 +292,10 @@ fi
 case "${cmd:-}" in
 add)
 	op_add
+	;;
+hostname)
+	[[ -n "$ZONE" ]] || die "hostname removal requires an active --zone"
+	op_hostname_remove
 	;;
 remove)
 	while [[ $# -gt 0 ]]; do
