@@ -104,13 +104,19 @@ echo
 echo "Phase 1: Smoke Tests"
 echo "────────────────────"
 
-for script in run.sh install.sh uninstall.sh lib/tui-runtime.sh packages/tui/scripts/build-runtime.sh; do
+for script in run.sh install.sh install-cftunnel.sh uninstall.sh lib/tui-runtime.sh packages/tui/scripts/build-runtime.sh; do
 	if bash -n "$PROJECT_DIR/$script"; then
 		_pass "syntax: $script"
 	else
 		_fail "syntax: $script"
 	fi
 done
+
+if "$SCRIPT_DIR/test_release_installer.sh"; then
+	_pass "release installer checksum and archive validation"
+else
+	_fail "release installer checksum and archive validation"
+fi
 
 # Check core dependencies exist
 for dep in jq cloudflared systemctl; do

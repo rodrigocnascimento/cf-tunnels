@@ -39,11 +39,7 @@ Your server connects outward to Cloudflare, so the local application does not ne
 ## A first look
 
 ```bash
-curl -fL -o cftunnel-linux-x64.tar.gz \
-  https://github.com/rodrigocnascimento/cf-tunnels/releases/latest/download/cftunnel-linux-x64.tar.gz
-tar -xzf cftunnel-linux-x64.tar.gz
-cd cf-tunnels
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/rodrigocnascimento/cf-tunnels/main/install-cftunnel.sh | bash
 
 cftunnel zone use example.com
 cftunnel zone login
@@ -57,10 +53,13 @@ cftunnel list
 cftunnel tui
 ```
 
-For ARM64 servers, download `cftunnel-linux-arm64.tar.gz` instead. Release
-bundles include the production TUI and activity-log runtime; Bun is not needed
-on the server. `cftunnel tui-dev` is reserved for contributors using a source
-checkout.
+The installer detects Linux x64/ARM64, downloads the latest release bundle,
+verifies its SHA-256 checksum, and installs it under your user account before
+setting up the system command. Run it as your regular user; it requests sudo
+only for system files. Zone authentication happens explicitly later with
+`cftunnel zone login`. Release bundles include the production TUI and
+activity-log runtime; Bun is not needed on the server. `cftunnel tui-dev` is
+reserved for contributors using a source checkout.
 
 The normal lifecycle is:
 
@@ -76,6 +75,7 @@ The normal lifecycle is:
 - Bash, `jq`, and `sudo`
 - a Cloudflare account and active DNS zone
 - `cloudflared` (the installer can install it)
+- `curl` or `wget`, `tar`, and `sha256sum` for the release installer
 - `curl` or `wget` to download `cloudflared` when it is not already installed
 - optional `dig` or `host`; DNS checks fall back to `getent`
 

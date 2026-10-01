@@ -8,12 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a `curl | bash` Linux installer that selects the x64/ARM64 release,
+  verifies its SHA-256 sidecar and archive contents, then installs the bundle
+  persistently for the current user.
 - Production `cftunnel tui` and `cftunnel log` use a standalone Bun runtime
   bundled in Linux x64/arm64 release archives; Bun is not required on servers.
 - Tagged releases build, test, package, and publish architecture-specific CLI
   bundles with a runtime manifest and SHA-256 verification.
 
 ### Fixed
+- Installation no longer starts a global Cloudflare login; credentials are
+  configured explicitly and isolated per zone with `cftunnel zone login`.
 - The installer verifies packaged runtimes, installs locked build dependencies
   before source builds, and no longer silently preserves a `cftunnel` symlink
   that points at another installation.

@@ -11,7 +11,8 @@ set -euo pipefail
 #
 # Options:
 #   --skip-cloudflared    Skip cloudflared installation
-#   --skip-auth           Skip Cloudflare authentication
+#   --skip-auth           Skip authentication (the default)
+#   --legacy-auth         Run the legacy global Cloudflare login
 #   --skip-symlink        Skip creating /usr/local/bin symlink
 #   --force               Overwrite existing files
 #   --help                Show this help message
@@ -32,7 +33,7 @@ SYSTEMD_TEMPLATE="/etc/systemd/system/cloudflared@.service"
 
 # Flags
 SKIP_CLOUDFLARED=false
-SKIP_AUTH=false
+SKIP_AUTH=true
 SKIP_SYMLINK=false
 FORCE=false
 
@@ -80,6 +81,10 @@ parse_args() {
 			SKIP_AUTH=true
 			shift
 			;;
+		--legacy-auth)
+			SKIP_AUTH=false
+			shift
+			;;
 		--skip-symlink)
 			SKIP_SYMLINK=true
 			shift
@@ -110,14 +115,15 @@ Usage:
 
 Options:
     --skip-cloudflared    Skip cloudflared installation
-    --skip-auth           Skip Cloudflare authentication
+    --skip-auth           Skip authentication (the default)
+    --legacy-auth         Run the legacy global Cloudflare login
     --skip-symlink        Skip creating /usr/local/bin symlink
     --force               Overwrite existing files
     --help, -h            Show this help message
 
 Examples:
-    ./install.sh                    # Full installation
-    ./install.sh --skip-auth       # Skip authentication (already done)
+    ./install.sh                    # Install; authenticate later per zone
+    ./install.sh --legacy-auth     # Run legacy global Cloudflare login
     ./install.sh --skip-symlink   # Skip symlink (use PATH export instead)
 
 HELP
@@ -229,7 +235,7 @@ install_cloudflared() {
 
 authenticate_cloudflared() {
 	if [[ "$SKIP_AUTH" == true ]]; then
-		log_info "Skipping authentication (--skip-auth)"
+		log_info "Skipping global Cloudflare login; authenticate each zone with: cftunnel zone login"
 		return 0
 	fi
 
