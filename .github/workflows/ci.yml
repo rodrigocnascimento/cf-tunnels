@@ -16,14 +16,16 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
+      - name: Install TUI dependencies
+        working-directory: packages/tui
+        run: bun install --frozen-lockfile
       - name: Test shell CLI
         run: |
-          for script in run.sh install.sh uninstall.sh lib/*.sh packages/tui/scripts/*.sh; do bash -n "$script"; done
+          for script in run.sh install.sh install-cftunnel.sh uninstall.sh lib/*.sh packages/tui/scripts/*.sh; do bash -n "$script"; done
           ./tests/run.sh
       - name: Test TUI and packaged-runtime build
         working-directory: packages/tui
         run: |
-          bun install --frozen-lockfile
           bun run typecheck
           bun test
           bun run build
