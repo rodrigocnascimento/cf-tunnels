@@ -2,22 +2,26 @@
 
 > **Issue:** CFTUNNEL-017
 > **Title:** Packaged Production TUI Artifact and Launcher
-> **Status:** Approved for future implementation
+> **Status:** Approved; shared runtime integration in progress via CFTUNNEL-019
 > **Date:** 2026-09-25
 
 ---
 
 ## Decision
 
-`cftunnel tui` will launch a release-built, platform-specific Bun executable;
-it must never silently run the development TypeScript source. Until that
-artifact exists, the command remains an explicit unavailable-production
-message and `cftunnel tui-dev` remains the source-checkout launcher.
+`cftunnel tui` launches a release-built, platform-specific Bun executable;
+it must never silently run the development TypeScript source. If the artifact
+is absent or invalid, the command reports a precise unavailable-production
+message. `cftunnel tui-dev` remains the source-checkout launcher.
 
 The production release pipeline will build the Ink entry point with Bun's
 compiled executable mode and ship both the executable and a detached JSON
-manifest in the release archive and installer payload. Generated artifacts do
-not belong in the source repository.
+manifest in the release archive and installer payload. The same executable
+also dispatches `cftunnel log` subcommands, so the installed runtime is shared
+by the TUI and event logger. A source checkout may build the artifact during
+installation when Bun is present; a release package already includes it and
+must install without Bun. Generated artifacts do not belong in the source
+repository.
 
 ## Artifact layout
 

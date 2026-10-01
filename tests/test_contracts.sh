@@ -224,9 +224,9 @@ test_tui_dev_launches_checkout_tui_with_source_cli() {
 	assert_eq "$PROJECT_DIR/run.sh|run $PROJECT_DIR/packages/tui/src/index.tsx" "$(cat "$launch_log")" "tui-dev command boundary"
 }
 
-test_tui_production_command_is_reserved() {
+test_tui_production_command_reports_missing_runtime_in_source_checkout() {
 	local output rc=0
 	output="$(RUN_USER="cftunnel-test-user-that-does-not-exist" "$PROJECT_DIR/run.sh" tui 2>&1)" || rc=$?
-	assert_ne "0" "$rc" "reserved production TUI command must fail"
-	assert_contains "$output" "production TUI is not packaged yet" "production TUI guidance"
+	assert_ne "0" "$rc" "production TUI must fail when bundled runtime is absent"
+	assert_contains "$output" "production TUI runtime is missing" "production TUI installation guidance"
 }

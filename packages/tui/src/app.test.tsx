@@ -150,7 +150,5 @@ test("renders persistent activity results from external operations", async () =>
 	await new Promise(resolve => setTimeout(resolve, 20));
 	expect(view.lastFrame()).toContain("ACTIVITY");
 	expect(view.lastFrame()).toContain("Hostname app.example.com failed (exit 1).");
-	expect(view.lastFrame()).toContain("CURRENT TUI SESSION");
-	expect(view.lastFrame()).toContain("Credentials are redacted");
-	expect(view.lastFrame()).toContain("unexpected shape");
+	expect(view.lastFrame()).toContain("PERSISTENT LOCAL LOG");
 });

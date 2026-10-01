@@ -1,14 +1,16 @@
-import type {CapabilityData, Health, HostnamePlan, HostnameRemovalPlan, Inventory, JsonResponse, ZoneContext, ZoneInventory, ZoneUse} from "./contracts.js";
+import type {ActivityLogEvent, CapabilityData, Health, HostnamePlan, HostnameRemovalPlan, Inventory, JsonResponse, ZoneContext, ZoneInventory, ZoneUse} from "./contracts.js";
+import {activityDetails} from "./activity.js";
 
 export interface ProcessRunner {
-	run(args: string[]): Promise<{exitCode: number; stdout: string; stderr: string}>;
+	run(args: string[], stdin?: string): Promise<{exitCode: number; stdout: string; stderr: string}>;
 }
 
 export class BunProcessRunner implements ProcessRunner {
 	constructor(private readonly binary = process.env.CFTUNNEL_BIN ?? "cftunnel") {}
 
-	async run(args: string[]) {
-		const process = Bun.spawn([this.binary, ...args], {stdout: "pipe", stderr: "pipe"});
+	async run(args: string[], stdin?: string) {
+		const process = Bun.spawn([this.binary, ...args], {stdin: stdin === undefined ? "ignore" : "pipe", stdout: "pipe", stderr: "pipe", env: {...Bun.env, CFTUNNEL_TUI_CONTEXT: "1"}});
+		if (stdin !== undefined) { const input = process.stdin; if (!input) throw new Error("cftunnel stdin pipe could not be opened"); input.write(stdin); input.end(); }
 		const [stdout, stderr, exitCode] = await Promise.all([
 			new Response(process.stdout).text(),
 			new Response(process.stderr).text(),
@@ -25,12 +27,22 @@ export interface TuiOperations {
 	zoneUse(zone: string): Promise<ZoneUse>;
 	hostnamePlan(zone: string, hostname: string, type: HostnamePlan["type"], service: string, originServerName?: string | null, verifyTls?: boolean): Promise<HostnamePlan>;
 	hostnameRemovePlan?(zone: string, hostname: string): Promise<HostnameRemovalPlan>;
+	activity?(): Promise<{events: ActivityLogEvent[]; warnings: string[]}>;
+	writeActivity?(event: Omit<ActivityLogEvent, "schema_version" | "timestamp"> & {timestamp?: string}): Promise<void>;
+	takeObservabilityWarning?(): string | null;
 	list(zone?: string | null): Promise<Inventory>;
 	health(name?: string, zone?: string | null): Promise<Health>;
 }
 
 export class CftunnelOperations implements TuiOperations {
+	private observabilityWarning: string | null = null;
 	constructor(private readonly runner: ProcessRunner = new BunProcessRunner()) {}
+
+	takeObservabilityWarning() {
+		const warning = this.observabilityWarning;
+		this.observabilityWarning = null;
+		return warning;
+	}
 
 	async capabilities() {
 		return this.call<CapabilityData>("capabilities", ["capabilities", "--output", "json"]);
@@ -57,6 +69,15 @@ export class CftunnelOperations implements TuiOperations {
 		return this.call<HostnameRemovalPlan>("hostname.remove.plan", ["--zone", zone, "hostname", "remove", "--hostname", hostname, "--plan", "--output", "json"]);
 	}
 
+	async activity() {
+		return this.call<{events: ActivityLogEvent[]; warnings: string[]}>("log.query", ["log", "query", "--limit", "40", "--order", "desc", "--output", "json"]);
+	}
+
+	async writeActivity(event: Omit<ActivityLogEvent, "schema_version" | "timestamp"> & {timestamp?: string}) {
+		const result = await this.runner.run(["log", "write", "--stdin-json"], JSON.stringify(event));
+		if (result.exitCode !== 0) throw new Error("activity event could not be persisted");
+	}
+
 	async list(zone: string | null = null) {
 		return this.call<Inventory>("tunnel.list", [...scopeArgs(zone), "list", "--output", "json"]);
 	}
@@ -68,8 +89,10 @@ export class CftunnelOperations implements TuiOperations {
 
 	private async call<T>(operation: string, args: string[]): Promise<T> {
 		const result = await this.runner.run(args);
+		const warning = result.stderr.split("\n").find(line => /observability warning:/i.test(line));
+		if (warning) this.observabilityWarning = warning.trim();
 		if (result.exitCode !== 0) {
-			throw new Error(result.stderr.trim() || `cftunnel ${operation} failed with exit ${result.exitCode}`);
+			throw new Error(activityDetails(result.stderr).join("\n") || `cftunnel ${operation} failed with exit ${result.exitCode}`);
 		}
 		let parsed: unknown;
 		try {

@@ -1,10 +1,14 @@
-export type ActivityLevel = "info" | "success" | "error";
+import {sanitizeLogText} from "./log.js";
+
+export type ActivityLevel = "debug" | "info" | "success" | "warning" | "error";
 
 export type ActivityEvent = {
 	at: string;
+	id?: string;
 	level: ActivityLevel;
 	message: string;
 	details?: string[];
+	type?: "activity" | "cloudflare" | "systemd" | "journal" | "system";
 };
 
 const MAX_LINES = 12;
@@ -12,10 +16,7 @@ const MAX_LINE_LENGTH = 500;
 
 /** Keep diagnostic stderr useful without retaining credentials in the TUI session. */
 export function activityDetails(stderr: string): string[] {
-	const redacted = stderr
-		.replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, "[redacted PEM]")
-		.replace(/([\"']?\b(?:token|secret|password|authorization)\b[\"']?\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|\S+)/gi, "$1[redacted]")
-		.replace(/\bBearer\s+\S+/gi, "Bearer [redacted]");
+	const redacted = sanitizeLogText(stderr);
 	return redacted.replace(/\r/g, "").split("\n")
 		.map(line => line.trim())
 		.filter(Boolean)

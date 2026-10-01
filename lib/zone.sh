@@ -602,6 +602,7 @@ exit_interrupted_zone_login() {
 
 op_zone() {
 	local subcmd="${1:-}"
+	CFTUNNEL_ZONE_ACTION="$subcmd"
 	shift || true
 
 	case "$subcmd" in

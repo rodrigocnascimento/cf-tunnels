@@ -343,6 +343,11 @@ create_tunnel_uuid() {
 		.id | select(type == "string")'
 }
 
+ensure_unit_enabled() {
+	local unit="$1"
+	sudo systemctl enable "$unit"
+}
+
 op_add() {
 	validate_flags_add
 	if [[ "${ADD_PLAN:-false}" == true ]]; then
@@ -547,6 +552,11 @@ Or create a CNAME in the Cloudflare dashboard pointing to ${UUID}.cfargotunnel.c
 	fi
 
 	if [[ "$existing_yaml" == true ]]; then
+		# Adding a route must also guarantee boot-time startup for tunnels that
+		# predate this behavior or were manually disabled. Enable before restart
+		# so the boot configuration remains correct even if runtime start fails.
+		echo "[+] ensuring service is enabled at boot: $UNIT"
+		ensure_unit_enabled "$UNIT" || die "could not enable service at boot: $UNIT"
 		echo "[+] restarting service to load updated ingress: $UNIT"
 		sudo systemctl restart "$UNIT"
 	else

@@ -51,6 +51,14 @@ export type HostnameRemovalPlan = {
 	dns: {action: "unchanged"; reason: string};
 	privilege: {sudo_required: true};
 };
+export type ActivityLogEvent = {
+	schema_version: 1;
+	timestamp: string;
+	type: "activity" | "cloudflare" | "systemd" | "journal" | "system";
+	level: "debug" | "info" | "success" | "warning" | "error";
+	message: string;
+	context?: Record<string, unknown>;
+};
 export type Health = {
 	scope_zone: string | null;
 	checked_at: string;

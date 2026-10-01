@@ -399,6 +399,21 @@ make_executable() {
 	log_success "run.sh is now executable"
 }
 
+ensure_bundled_runtime() {
+	local runtime="$SCRIPT_DIR/packages/tui/dist/cftunnel-runtime"
+	if [[ -x "$runtime" ]]; then
+		log_success "Bundled cftunnel runtime is ready"
+		return 0
+	fi
+	if command -v bun >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/packages/tui/package.json" ]]; then
+		log_info "Building the bundled TUI and logging runtime..."
+		(cd "$SCRIPT_DIR/packages/tui" && bun run build) || die "Failed to build the cftunnel runtime"
+		[[ -x "$runtime" ]] || die "The build did not produce an executable runtime"
+		return 0
+	fi
+	die "The complete cftunnel package is missing packages/tui/dist/cftunnel-runtime. Install a release package containing the bundled runtime, or build it with Bun before installation."
+}
+
 # =============================================================================
 # Create Symlink
 # =============================================================================
@@ -497,6 +512,7 @@ main() {
 
 	parse_args "$@"
 	check_permissions
+	ensure_bundled_runtime
 
 	echo
 	echo "Selected options:"

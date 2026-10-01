@@ -73,6 +73,20 @@ test_instance_unit_with_zone() {
 	assert_eq "cloudflared@homelaberson.space_api.service" "$result" "instance_unit with zone"
 }
 
+test_ensure_unit_enabled_enables_boot_start() {
+	local side_effect_log="$HOME/systemctl.log"
+	sudo() { printf '%s\n' "$*" >> "$side_effect_log"; }
+	ensure_unit_enabled "cloudflared@example.service"
+	assert_eq "systemctl enable cloudflared@example.service" "$(cat "$side_effect_log")" "unit enable operation"
+}
+
+test_ensure_unit_enabled_propagates_failure() {
+	sudo() { return 1; }
+	local rc=0
+	ensure_unit_enabled "cloudflared@example.service" || rc=$?
+	assert_ne "0" "$rc" "enable failure must propagate"
+}
+
 test_validate_zone_name_ok() {
 	local result
 	result="$(validate_zone_name "homelaberson.space")"

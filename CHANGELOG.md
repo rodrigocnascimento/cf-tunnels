@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-29
+
+### Added
+- Added persistent structured activity and diagnostic events through
+  `cftunnel log write|query`. Events use private UTC-daily JSONL files and the
+  bundled Bun runtime; runtime compilation is a build-time requirement only.
+- The TUI Activity pane now reads persistent local events and displays their
+  timestamp, source type, outcome marker, and sanitized message.
+- The compiled runtime can launch both the production TUI and log commands;
+  source checkouts retain their Bun development launcher.
+
+### Security
+- Log writes and reads redact sensitive structured keys, PEM/certificate
+  blocks, Bearer/JWT credentials, and long opaque token-like strings.
+- Log write failures do not alter tunnel operation results. They are silent in
+  normal CLI use and surfaced as observability warnings to the TUI.
+
 ## [0.16.0] - 2026-09-29
 
 ### Added
