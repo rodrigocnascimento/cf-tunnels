@@ -1,0 +1,80 @@
+name: Build and publish cftunnel release bundles
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Linux ${{ matrix.arch }} bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Validate release tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: test "$TAG" = "v$(tr -d '[:space:]' < VERSION)"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install TUI dependencies
+        working-directory: packages/tui
+        run: bun install --frozen-lockfile
+      - name: Verify shell CLI and TUI
+        run: |
+          for script in run.sh install.sh uninstall.sh lib/*.sh packages/tui/scripts/*.sh; do bash -n "$script"; done
+          ./tests/run.sh
+          cd packages/tui
+          bun run typecheck
+          bun test
+      - name: Build standalone runtime
+        working-directory: packages/tui
+        env:
+          CFTUNNEL_BUILD_TARGET: bun-linux-${{ matrix.arch }}
+        run: bun run build
+      - name: Assemble release archive
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          stage="$RUNNER_TEMP/cftunnel-release"
+          mkdir -p "$stage/cf-tunnels/packages/tui/dist"
+          git archive "$GITHUB_SHA" | tar -x -C "$stage/cf-tunnels"
+          cp packages/tui/dist/cftunnel-runtime* "$stage/cf-tunnels/packages/tui/dist/"
+          tar -czf "$RUNNER_TEMP/cftunnel-linux-$ARCH.tar.gz" -C "$stage" cf-tunnels
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cftunnel-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/cftunnel-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish release bundles
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cftunnel-linux-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create or update GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release upload "$TAG" release-assets/*.tar.gz --clobber

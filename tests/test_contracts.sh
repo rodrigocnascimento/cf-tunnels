@@ -225,6 +225,11 @@ test_tui_dev_launches_checkout_tui_with_source_cli() {
 }
 
 test_tui_production_command_reports_missing_runtime_in_source_checkout() {
+	local runtime="$PROJECT_DIR/packages/tui/dist/cftunnel-runtime"
+	if [[ -e "$runtime" ]]; then
+		verify_cftunnel_runtime "$PROJECT_DIR" "$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")" >/dev/null
+		return
+	fi
 	local output rc=0
 	output="$(RUN_USER="cftunnel-test-user-that-does-not-exist" "$PROJECT_DIR/run.sh" tui 2>&1)" || rc=$?
 	assert_ne "0" "$rc" "production TUI must fail when bundled runtime is absent"

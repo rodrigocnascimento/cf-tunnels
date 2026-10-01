@@ -87,6 +87,36 @@ test_ensure_unit_enabled_propagates_failure() {
 	assert_ne "0" "$rc" "enable failure must propagate"
 }
 
+test_verify_cftunnel_runtime_accepts_matching_manifest() {
+	local package="$HOME/runtime-fixture" runtime hash arch
+	case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) return 1 ;; esac
+	runtime="$package/packages/tui/dist/cftunnel-runtime"
+	mkdir -p "$(dirname "$runtime")"
+	printf '%s\n' 'standalone runtime fixture' > "$runtime"
+	chmod 755 "$runtime"
+	hash="$(sha256sum "$runtime" | awk '{print $1}')"
+	jq -n --arg hash "$hash" --arg arch "$arch" \
+		'{schema_version:1,tui_version:"0.17.0",cftunnel_contract_schema:1,platform:"linux",arch:$arch,target:("bun-linux-"+$arch),sha256:$hash}' \
+		> "$runtime.manifest.json"
+	verify_cftunnel_runtime "$package" "0.17.0" >/dev/null
+}
+
+test_verify_cftunnel_runtime_rejects_tampered_binary() {
+	local package="$HOME/runtime-fixture" runtime hash arch rc=0
+	case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) return 1 ;; esac
+	runtime="$package/packages/tui/dist/cftunnel-runtime"
+	mkdir -p "$(dirname "$runtime")"
+	printf '%s\n' 'original runtime fixture' > "$runtime"
+	chmod 755 "$runtime"
+	hash="$(sha256sum "$runtime" | awk '{print $1}')"
+	jq -n --arg hash "$hash" --arg arch "$arch" \
+		'{schema_version:1,tui_version:"0.17.0",cftunnel_contract_schema:1,platform:"linux",arch:$arch,target:("bun-linux-"+$arch),sha256:$hash}' \
+		> "$runtime.manifest.json"
+	printf '%s\n' 'tampered' >> "$runtime"
+	verify_cftunnel_runtime "$package" "0.17.0" >/dev/null 2>&1 || rc=$?
+	assert_ne "0" "$rc" "runtime checksum mismatch must fail closed"
+}
+
 test_validate_zone_name_ok() {
 	local result
 	result="$(validate_zone_name "homelaberson.space")"

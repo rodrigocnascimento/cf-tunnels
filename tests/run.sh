@@ -104,7 +104,7 @@ echo
 echo "Phase 1: Smoke Tests"
 echo "────────────────────"
 
-for script in run.sh install.sh uninstall.sh; do
+for script in run.sh install.sh uninstall.sh lib/tui-runtime.sh packages/tui/scripts/build-runtime.sh; do
 	if bash -n "$PROJECT_DIR/$script"; then
 		_pass "syntax: $script"
 	else

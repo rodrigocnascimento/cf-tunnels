@@ -33,13 +33,15 @@ Your server connects outward to Cloudflare, so the local application does not ne
 - **Safe defaults** — hostname containment, private file modes, fail-closed removal, and crash-recoverable credential refresh.
 - **Automatic routing** — creates the Cloudflare tunnel and DNS route, with `--no-dns` when DNS is managed elsewhere.
 - **Local truth** — `cftunnel list` reports routes from local YAML without requiring Cloudflare or network access.
-- **Operational TUI** — an optional Ink + Bun dashboard presents tunnel summaries, local routes, systemd state, and explicit health checks through the same hardened CLI contracts.
+- **Operational TUI** — `cftunnel tui` launches a self-contained Ink dashboard with tunnel summaries, local routes, systemd state, and explicit health checks through the same hardened CLI contracts.
 - **Multiple origin types** — HTTP/HTTPS, SSH, and generic TCP services.
 
 ## A first look
 
 ```bash
-git clone https://github.com/rodrigocnascimento/cf-tunnels.git
+curl -fL -o cftunnel-linux-x64.tar.gz \
+  https://github.com/rodrigocnascimento/cf-tunnels/releases/latest/download/cftunnel-linux-x64.tar.gz
+tar -xzf cftunnel-linux-x64.tar.gz
 cd cf-tunnels
 ./install.sh
 
@@ -52,8 +54,13 @@ cftunnel add \
   --service http://localhost:3000
 
 cftunnel list
-cftunnel tui-dev
+cftunnel tui
 ```
+
+For ARM64 servers, download `cftunnel-linux-arm64.tar.gz` instead. Release
+bundles include the production TUI and activity-log runtime; Bun is not needed
+on the server. `cftunnel tui-dev` is reserved for contributors using a source
+checkout.
 
 The normal lifecycle is:
 
@@ -69,7 +76,11 @@ The normal lifecycle is:
 - Bash, `jq`, and `sudo`
 - a Cloudflare account and active DNS zone
 - `cloudflared` (the installer can install it)
+- `curl` or `wget` to download `cloudflared` when it is not already installed
 - optional `dig` or `host`; DNS checks fall back to `getent`
+
+Bun is only needed when building from a source checkout. The release bundle
+contains a platform-specific runtime for `cftunnel tui` and `cftunnel log`.
 
 ## Documentation
 

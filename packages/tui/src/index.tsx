@@ -42,14 +42,7 @@ const runExternal = async (label: string, args: string[], streamStderr = false) 
 		// Interactive authentication can print its browser URL on stderr before
 		// waiting for the user. Stream it directly to the terminal; never retain
 		// authentication output in the persistent activity log.
-		const exitCode = await child.exited;
-		if (exitCode !== 0) {
-			try {
-				await client.writeActivity?.({type: "activity", level: "error", message: `${label} failed (exit ${exitCode})`});
-			} catch {
-				record("warning", "Observability warning: operation failure could not be persisted");
-			}
-		}
+		await child.exited;
 		start();
 		return;
 	}

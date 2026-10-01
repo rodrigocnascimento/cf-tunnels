@@ -22,6 +22,7 @@ source "$SCRIPT_DIR/lib/zone.sh"
 source "$SCRIPT_DIR/lib/tunnel.sh"
 source "$SCRIPT_DIR/lib/contracts.sh"
 source "$SCRIPT_DIR/lib/health.sh"
+source "$SCRIPT_DIR/lib/tui-runtime.sh"
 
 # ===== Help text =============================================================
 print_usage() {
@@ -108,17 +109,27 @@ tui_dev_preflight() {
 run_tui_runtime() {
 	local runtime="$SCRIPT_DIR/packages/tui/dist/cftunnel-runtime"
 	local mode="${1:-}" source_entry="$SCRIPT_DIR/packages/tui/src/index.tsx"
-	# In a source checkout, keep logger calls on the TS entry during development;
-	# this avoids invoking a stale compiled artifact while its bundle is changing.
-	if [[ "$mode" == "log" && -f "$source_entry" && -x "$(command -v bun 2>/dev/null || true)" ]]; then
+	# In a source checkout with no compiled artifact, allow local development to
+	# exercise the logger through Bun. Release bundles always use the verified,
+	# self-contained runtime, even when Bun happens to be installed on the host.
+	if [[ "$mode" == "log" && ! -e "$runtime" && ! -L "$runtime" && ! -e "$runtime.manifest.json" && -e "$SCRIPT_DIR/.git" && -f "$source_entry" && -x "$(command -v bun 2>/dev/null || true)" && -f "$SCRIPT_DIR/packages/tui/node_modules/ink/package.json" && -f "$SCRIPT_DIR/packages/tui/node_modules/react/package.json" ]]; then
 		shift
 		CFTUNNEL_RUNTIME_MODE=log CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec bun run "$source_entry" log "$@"
 	fi
-	if [[ -x "$runtime" ]]; then
-		CFTUNNEL_RUNTIME_MODE="$mode" CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec "$runtime" "$@"
+	verify_cftunnel_runtime "$SCRIPT_DIR" "$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")" || exit 1
+	if [[ "$mode" == "tui" ]]; then
+		[[ -t 0 && -t 1 ]] || die "the production TUI requires an interactive terminal; run 'cftunnel tui' directly in a terminal"
+		[[ "${TERM:-}" != "dumb" ]] || die "the production TUI requires ANSI terminal support (TERM must not be dumb)"
+		local columns
+		columns="$(tput cols 2>/dev/null || printf 0)"
+		if [[ "$columns" =~ ^[0-9]+$ && "$columns" -gt 0 && "$columns" -lt 60 ]]; then
+			die "the production TUI needs at least 60 terminal columns (found $columns)"
+		fi
+		local capabilities
+		capabilities="$("$SCRIPT_DIR/run.sh" capabilities --output json 2>/dev/null)" || die "this cftunnel installation cannot provide the TUI contract; reinstall the complete package"
+		jq -e '.schema_version == 1 and .operation == "capabilities" and .ok == true and .data.operations["zone.list"].json == true and .data.operations["tunnel.list"].json == true and .data.operations["tunnel.health"].json == true' <<< "$capabilities" >/dev/null || die "this cftunnel installation has an incompatible TUI contract; upgrade cftunnel"
 	fi
-	if [[ "$mode" == "log" ]]; then die "the bundled cftunnel runtime is missing; reinstall the complete cftunnel package"; fi
-	die "the production TUI runtime is missing; reinstall the complete cftunnel package (use 'cftunnel tui-dev' in a source checkout)"
+	CFTUNNEL_RUNTIME_MODE="$mode" CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec "$runtime" "$@"
 }
 
 # ===== Argument parser =======================================================

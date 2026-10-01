@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Production `cftunnel tui` and `cftunnel log` use a standalone Bun runtime
+  bundled in Linux x64/arm64 release archives; Bun is not required on servers.
+- Tagged releases build, test, package, and publish architecture-specific CLI
+  bundles with a runtime manifest and SHA-256 verification.
+
+### Fixed
+- The installer verifies packaged runtimes, installs locked build dependencies
+  before source builds, and no longer silently preserves a `cftunnel` symlink
+  that points at another installation.
+- Production TUI startup verifies the runtime manifest and the local JSON
+  contract before launching.
+
 ## [0.17.0] - 2026-09-29
 
 ### Added

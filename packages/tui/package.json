@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
-    "build": "mkdir -p dist && bun build --compile --production --minify src/runtime.ts --outfile dist/cftunnel-runtime",
+    "build": "bash scripts/build-runtime.sh",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
