@@ -22,6 +22,7 @@ source "$SCRIPT_DIR/lib/zone.sh"
 source "$SCRIPT_DIR/lib/tunnel.sh"
 source "$SCRIPT_DIR/lib/contracts.sh"
 source "$SCRIPT_DIR/lib/health.sh"
+source "$SCRIPT_DIR/lib/tui-runtime.sh"
 
 # ===== Help text =============================================================
 print_usage() {
@@ -36,7 +37,8 @@ Global options:
   --version       Show the cftunnel version and exit
 
 Commands:
-  add           --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--no-dns]
+  add           --hostname FQDN --type (ssh|http|tcp) --service URL [--name NAME] [--origin-server-name NAME] [--no-tls-verify|--verify-tls] [--no-dns] [--plan|--yes]
+  hostname remove --hostname FQDN [--plan|--yes]
   remove        --name NAME
   start|stop|status|logs   --name NAME
   list          List local hostname routes in the active zone (or all zones if none)
@@ -44,7 +46,8 @@ Commands:
   capabilities  Show supported machine-readable contract operations
   privilege     Check cached sudo availability for future TUI mutations
   tui-dev       Launch the checkout's read-only Ink/Bun TUI
-  tui           Reserved for the future installed production TUI
+  tui           Launch the installed production TUI (bundled runtime)
+  log           Query local structured activity events
   version       Show the cftunnel version and exit
   cli-update    Update the cloudflared dependency to the latest version
   zone          Manage persistent default zone and authentication
@@ -101,6 +104,32 @@ tui_dev_preflight() {
 			die "TUI development needs at least 60 terminal columns (found $columns)"
 		fi
 	fi
+}
+
+run_tui_runtime() {
+	local runtime="$SCRIPT_DIR/packages/tui/dist/cftunnel-runtime"
+	local mode="${1:-}" source_entry="$SCRIPT_DIR/packages/tui/src/index.tsx"
+	# In a source checkout with no compiled artifact, allow local development to
+	# exercise the logger through Bun. Release bundles always use the verified,
+	# self-contained runtime, even when Bun happens to be installed on the host.
+	if [[ "$mode" == "log" && ! -e "$runtime" && ! -L "$runtime" && ! -e "$runtime.manifest.json" && -e "$SCRIPT_DIR/.git" && -f "$source_entry" && -x "$(command -v bun 2>/dev/null || true)" && -f "$SCRIPT_DIR/packages/tui/node_modules/ink/package.json" && -f "$SCRIPT_DIR/packages/tui/node_modules/react/package.json" ]]; then
+		shift
+		CFTUNNEL_RUNTIME_MODE=log CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec bun run "$source_entry" log "$@"
+	fi
+	verify_cftunnel_runtime "$SCRIPT_DIR" "$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")" || exit 1
+	if [[ "$mode" == "tui" ]]; then
+		[[ -t 0 && -t 1 ]] || die "the production TUI requires an interactive terminal; run 'cftunnel tui' directly in a terminal"
+		[[ "${TERM:-}" != "dumb" ]] || die "the production TUI requires ANSI terminal support (TERM must not be dumb)"
+		local columns
+		columns="$(tput cols 2>/dev/null || printf 0)"
+		if [[ "$columns" =~ ^[0-9]+$ && "$columns" -gt 0 && "$columns" -lt 60 ]]; then
+			die "the production TUI needs at least 60 terminal columns (found $columns)"
+		fi
+		local capabilities
+		capabilities="$("$SCRIPT_DIR/run.sh" capabilities --output json 2>/dev/null)" || die "this cftunnel installation cannot provide the TUI contract; reinstall the complete package"
+		jq -e '.schema_version == 1 and .operation == "capabilities" and .ok == true and .data.operations["zone.list"].json == true and .data.operations["tunnel.list"].json == true and .data.operations["tunnel.health"].json == true' <<< "$capabilities" >/dev/null || die "this cftunnel installation has an incompatible TUI contract; upgrade cftunnel"
+	fi
+	CFTUNNEL_RUNTIME_MODE="$mode" CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec "$runtime" "$@"
 }
 
 # ===== Argument parser =======================================================
@@ -182,11 +211,14 @@ tui-dev)
 	tui_dev_preflight
 	tui_entry="$SCRIPT_DIR/packages/tui/src/index.tsx"
 	[[ -f "$tui_entry" ]] || die "TUI development entry point is missing: $tui_entry"
-	CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec bun run "$tui_entry"
+	CFTUNNEL_RUNTIME_MODE=tui CFTUNNEL_BIN="$SCRIPT_DIR/run.sh" exec bun run "$tui_entry"
 	;;
 tui)
 	[[ $# -eq 0 ]] || die "'tui' does not accept arguments"
-	die "the production TUI is not packaged yet; use 'cftunnel tui-dev' from a source checkout"
+	run_tui_runtime tui
+	;;
+log)
+	run_tui_runtime log "$@"
 	;;
 esac
 
@@ -195,23 +227,48 @@ TUNNEL_HOSTNAME=""
 TYPE=""
 SERVICE=""
 NO_DNS=false
+ADD_PLAN=false
+ADD_YES=false
+ORIGIN_SERVER_NAME=""
+TLS_VERIFY=true
+TLS_VERIFY_SET=false
+REMOVE_HOSTNAME=""
+REMOVE_PLAN=false
+REMOVE_YES=false
 
 parse_add_args() {
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
-		--hostname | --type | --service | --name)
+		--hostname | --type | --service | --name | --origin-server-name)
 			[[ $# -ge 2 ]] || die "$1 requires a value"
 			case "$1" in
 			--hostname) TUNNEL_HOSTNAME="$2" ;;
 			--type) TYPE="$2" ;;
 			--service) SERVICE="$2" ;;
 			--name) NAME="$2" ;;
+			--origin-server-name) ORIGIN_SERVER_NAME="$2" ;;
 			esac
 			shift 2
 			;;
 		--no-dns) NO_DNS=true; shift ;;
+		--no-tls-verify) [[ "$TLS_VERIFY_SET" == false ]] || die "choose only one of --no-tls-verify or --verify-tls"; TLS_VERIFY=false; TLS_VERIFY_SET=true; shift ;;
+		--verify-tls) [[ "$TLS_VERIFY_SET" == false ]] || die "choose only one of --no-tls-verify or --verify-tls"; TLS_VERIFY=true; TLS_VERIFY_SET=true; shift ;;
+		--plan) ADD_PLAN=true; shift ;;
+		--yes) ADD_YES=true; shift ;;
 		-h | --help) print_usage; exit 0 ;;
 		*) echo "unknown flag: $1"; print_usage; exit 1 ;;
+		esac
+	done
+}
+
+parse_hostname_remove_args() {
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+		--hostname) [[ $# -ge 2 ]] || die "--hostname requires a value"; REMOVE_HOSTNAME="$2"; shift 2 ;;
+		--plan) REMOVE_PLAN=true; shift ;;
+		--yes) REMOVE_YES=true; shift ;;
+		-h | --help) print_usage; exit 0 ;;
+		*) die "unknown hostname remove flag: $1" ;;
 		esac
 	done
 }
@@ -242,6 +299,11 @@ if [[ "$cmd" == "add" ]]; then
 	validate_add_input
 fi
 
+if [[ "$cmd" == "hostname" && "${1:-}" == "remove" ]]; then
+	shift
+	parse_hostname_remove_args "$@"
+fi
+
 if [[ -n "$ZONE" && "$PERSIST_ZONE" == true ]]; then
 	current_default="$(load_default_zone)" || exit 1
 	ZONE="$(register_zone "$ZONE")" || exit 1
@@ -258,9 +320,41 @@ fi
 
 [[ "${CFTUNNEL_SKIP_MAIN:-}" == "1" ]] && return 0
 
+emit_operation_event() {
+	local status="$1" event_level=success outcome="completed" operation="$cmd"
+	case "$cmd" in
+	add | remove | hostname | start | stop | zone | health) ;;
+	*) return 0 ;;
+	esac
+	if [[ "$cmd" == "zone" ]]; then
+		case "${CFTUNNEL_ZONE_ACTION:-}" in
+		use|set|switch|unset|clear|remove|login) operation="zone.${CFTUNNEL_ZONE_ACTION}" ;;
+		*) return 0 ;;
+		esac
+	fi
+	[[ "$cmd" == "add" && "$ADD_PLAN" == true ]] && return 0
+	[[ "$cmd" == "hostname" && "$REMOVE_PLAN" == true ]] && return 0
+	if [[ "$status" -ne 0 ]]; then event_level=error; outcome="failed (exit $status)"; fi
+	local args=(log write --type activity --level "$event_level" --message "cftunnel $operation $outcome" --operation "$operation")
+	[[ -z "$ZONE" ]] || args+=(--zone "$ZONE")
+	local event_hostname="${TUNNEL_HOSTNAME:-${REMOVE_HOSTNAME:-}}"
+	[[ -z "$event_hostname" ]] || args+=(--hostname "$event_hostname")
+	if ! "$SCRIPT_DIR/run.sh" "${args[@]}" >/dev/null 2>&1; then
+		if [[ "${CFTUNNEL_TUI_CONTEXT:-}" == "1" ]]; then
+			echo "warning: operation $outcome, but its activity event could not be persisted" >&2
+		fi
+	fi
+}
+
+trap 'operation_status=$?; emit_operation_event "$operation_status"' EXIT
+
 case "${cmd:-}" in
 add)
 	op_add
+	;;
+hostname)
+	[[ -n "$ZONE" ]] || die "hostname removal requires an active --zone"
+	op_hostname_remove
 	;;
 remove)
 	while [[ $# -gt 0 ]]; do

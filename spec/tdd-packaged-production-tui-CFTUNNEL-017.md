@@ -2,31 +2,35 @@
 
 > **Issue:** CFTUNNEL-017
 > **Title:** Packaged Production TUI Artifact and Launcher
-> **Status:** Approved for future implementation
+> **Status:** Implemented for Linux x64/arm64 release bundles; release workflow pending first tagged run
 > **Date:** 2026-09-25
 
 ---
 
 ## Decision
 
-`cftunnel tui` will launch a release-built, platform-specific Bun executable;
-it must never silently run the development TypeScript source. Until that
-artifact exists, the command remains an explicit unavailable-production
-message and `cftunnel tui-dev` remains the source-checkout launcher.
+`cftunnel tui` launches a release-built, platform-specific Bun executable;
+it must never silently run the development TypeScript source. If the artifact
+is absent or invalid, the command reports a precise unavailable-production
+message. `cftunnel tui-dev` remains the source-checkout launcher.
 
 The production release pipeline will build the Ink entry point with Bun's
 compiled executable mode and ship both the executable and a detached JSON
-manifest in the release archive and installer payload. Generated artifacts do
-not belong in the source repository.
+manifest in the release archive and installer payload. The same executable
+also dispatches `cftunnel log` subcommands, so the installed runtime is shared
+by the TUI and event logger. A source checkout may build the artifact during
+installation when Bun is present; a release package already includes it and
+must install without Bun. Generated artifacts do not belong in the source
+repository.
 
 ## Artifact layout
 
-For a target `linux-x64`, a release contains:
+Inside each release bundle, a target such as `linux-x64` contains:
 
 ```text
 packages/tui/dist/
-  cftunnel-tui-linux-x64
-  cftunnel-tui-linux-x64.manifest.json
+  cftunnel-runtime
+  cftunnel-runtime.manifest.json
 ```
 
 The manifest is public metadata only:
@@ -34,10 +38,11 @@ The manifest is public metadata only:
 ```json
 {
   "schema_version": 1,
-  "tui_version": "0.11.0",
+  "tui_version": "0.17.0",
   "cftunnel_contract_schema": 1,
   "platform": "linux",
   "arch": "x64",
+  "target": "bun-linux-x64",
   "sha256": "..."
 }
 ```
@@ -67,18 +72,18 @@ Ink executable → Bun adapter → installed cftunnel JSON subprocess API
 
 ## Release and install boundary
 
-The release workflow creates the artifact only after typecheck and Bun/Ink
-tests pass. It computes the manifest after compiling, packages the matching
-artifact with `install.sh`, and verifies it in a clean install test. The
-installer copies no build toolchain; it only installs the verified release
-payload. Cross-platform artifacts are built separately and never selected by
-extension or an unvalidated filename.
+The release workflow builds Linux x64 and arm64 bundles only after shell, type,
+and Bun/Ink tests pass. Each archive contains the CLI source and its matching
+runtime/manifest pair. `install.sh` verifies a bundled runtime before use; a
+source checkout can build one when Bun is installed, after installing the
+locked package dependencies. Generated artifacts do not belong in the source
+repository.
 
 ## Acceptance criteria for the future implementation
 
-- [ ] A production build produces a deterministic executable/manifest pair per
+- [x] A production build produces an executable/manifest pair per
   supported platform and architecture.
-- [ ] `cftunnel tui` verifies the pair and refuses mismatch/tampering.
-- [ ] Production launch works without Bun on `PATH`.
-- [ ] `tui-dev` remains explicitly source/dependency/TTY checked.
-- [ ] The release workflow and a clean-install check exercise both launchers.
+- [x] `cftunnel tui` verifies the pair and refuses mismatch/tampering.
+- [x] Production launch works without Bun on `PATH` when using a release bundle.
+- [x] `tui-dev` remains explicitly source/dependency/TTY checked.
+- [ ] Run the release workflow and a clean install against the first published tag.

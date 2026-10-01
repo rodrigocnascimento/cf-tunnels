@@ -153,6 +153,63 @@ test_privilege_check_is_non_interactive() {
 	assert_eq "sudo_auth_required" "$(jq -r '.data.reason' <<< "$output")" "sudo reason"
 }
 
+test_hostname_add_plan_is_local_and_identifies_reused_tunnel_restart() {
+	setup_mock_home
+	OUTPUT_FORMAT=json
+	ZONE="example.com"
+	NAME="example-http"
+	TUNNEL_HOSTNAME="app.example.com"
+	TYPE="http"
+	SERVICE="http://localhost:8080"
+	write_contract_fixture "example.com" "example-http" "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" "old.example.com" "http://localhost:8000"
+	cloudflared() { printf '%s\n' called >&2; return 99; }
+
+	local output
+	output="$(op_add_plan)"
+	assert_eq "hostname.add.plan" "$(jq -r '.operation' <<< "$output")" "hostname plan operation"
+	assert_eq "example-http" "$(jq -r '.data.tunnel_name' <<< "$output")" "recommended tunnel name"
+	assert_eq "true" "$(jq -r '.data.existing_tunnel' <<< "$output")" "existing tunnel is detected"
+	assert_eq "true" "$(jq -r '.data.restart_required' <<< "$output")" "existing tunnel requires restart"
+	assert_eq "true" "$(jq -r '.data.privilege.sudo_required' <<< "$output")" "plan exposes sudo requirement"
+
+	teardown_mock_home
+}
+
+test_hostname_plan_accepts_https_origins_for_http_type() {
+	ZONE="example.com"
+	NAME=""
+	TUNNEL_HOSTNAME="secure.example.com"
+	TYPE="http"
+	SERVICE="https://localhost:8443"
+	OUTPUT_FORMAT=json
+	local output
+	output="$(op_add_plan)"
+	assert_eq "https://localhost:8443" "$(jq -r '.data.service' <<< "$output")" "https origin is preserved"
+}
+
+test_hostname_remove_plan_is_local_and_leaves_dns_unchanged() {
+	setup_mock_home
+	OUTPUT_FORMAT=json
+	ZONE="example.com"
+	REMOVE_HOSTNAME="remove.example.com"
+	REMOVE_PLAN=true
+	mkdir -p "$HOME/.cloudflared/zones/example.com"
+	printf '%s\n' \
+		'ingress:' \
+		'  - hostname: "remove.example.com"' \
+		'    service: "http://localhost:8080"' \
+		'  - hostname: "keep.example.com"' \
+		'    service: "http://localhost:8081"' \
+		'  - service: http_status:404' > "$HOME/.cloudflared/zones/example.com/example-http.yml"
+	local output
+	output="$(op_hostname_remove)"
+	assert_eq "hostname.remove.plan" "$(jq -r '.operation' <<< "$output")" "hostname removal operation"
+	assert_eq "remove.example.com" "$(jq -r '.data.hostname' <<< "$output")" "hostname removal target"
+	assert_eq "unchanged" "$(jq -r '.data.dns.action' <<< "$output")" "DNS is explicitly unchanged"
+	assert_eq "1" "$(jq -r '.data.remaining_hostname_count' <<< "$output")" "one route remains"
+	teardown_mock_home
+}
+
 test_tui_dev_launches_checkout_tui_with_source_cli() {
 	local fake_bin="$HOME/fake-bin" launch_log="$HOME/tui-launch.log"
 	mkdir -p "$fake_bin"
@@ -167,9 +224,14 @@ test_tui_dev_launches_checkout_tui_with_source_cli() {
 	assert_eq "$PROJECT_DIR/run.sh|run $PROJECT_DIR/packages/tui/src/index.tsx" "$(cat "$launch_log")" "tui-dev command boundary"
 }
 
-test_tui_production_command_is_reserved() {
+test_tui_production_command_reports_missing_runtime_in_source_checkout() {
+	local runtime="$PROJECT_DIR/packages/tui/dist/cftunnel-runtime"
+	if [[ -e "$runtime" ]]; then
+		verify_cftunnel_runtime "$PROJECT_DIR" "$(tr -d '[:space:]' < "$PROJECT_DIR/VERSION")" >/dev/null
+		return
+	fi
 	local output rc=0
 	output="$(RUN_USER="cftunnel-test-user-that-does-not-exist" "$PROJECT_DIR/run.sh" tui 2>&1)" || rc=$?
-	assert_ne "0" "$rc" "reserved production TUI command must fail"
-	assert_contains "$output" "production TUI is not packaged yet" "production TUI guidance"
+	assert_ne "0" "$rc" "production TUI must fail when bundled runtime is absent"
+	assert_contains "$output" "production TUI runtime is missing" "production TUI installation guidance"
 }

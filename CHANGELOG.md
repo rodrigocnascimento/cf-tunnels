@@ -7,6 +7,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added a `curl | bash` Linux installer that selects the x64/ARM64 release,
+  verifies its SHA-256 sidecar and archive contents, then installs the bundle
+  persistently for the current user.
+- Production `cftunnel tui` and `cftunnel log` use a standalone Bun runtime
+  bundled in Linux x64/arm64 release archives; Bun is not required on servers.
+- Tagged releases build, test, package, and publish architecture-specific CLI
+  bundles with a runtime manifest and SHA-256 verification.
+
+### Fixed
+- Installation no longer starts a global Cloudflare login; credentials are
+  configured explicitly and isolated per zone with `cftunnel zone login`.
+- The installer verifies packaged runtimes, installs locked build dependencies
+  before source builds, and no longer silently preserves a `cftunnel` symlink
+  that points at another installation.
+- Production TUI startup verifies the runtime manifest and the local JSON
+  contract before launching.
+
+## [0.17.0] - 2026-09-29
+
+### Added
+- Added persistent structured activity and diagnostic events through
+  `cftunnel log write|query`. Events use private UTC-daily JSONL files and the
+  bundled Bun runtime; runtime compilation is a build-time requirement only.
+- The TUI Activity pane now reads persistent local events and displays their
+  timestamp, source type, outcome marker, and sanitized message.
+- The compiled runtime can launch both the production TUI and log commands;
+  source checkouts retain their Bun development launcher.
+
+### Security
+- Log writes and reads redact sensitive structured keys, PEM/certificate
+  blocks, Bearer/JWT credentials, and long opaque token-like strings.
+- Log write failures do not alter tunnel operation results. They are silent in
+  normal CLI use and surfaced as observability warnings to the TUI.
+
+## [0.16.0] - 2026-09-29
+
+### Added
+- Added `cftunnel hostname remove --hostname ... --plan|--yes`, which removes
+  exactly one local ingress hostname from its resolved tunnel and restarts that
+  service after validating the resulting configuration.
+- The TUI can remove a hostname with `[x]`: select a hostname from the current
+  tunnel, review the removal plan, then confirm the operation.
+
+### Safety
+- Hostname removal does not remove the Cloudflare DNS record or the tunnel.
+  The plan explicitly reports this boundary; DNS deletion remains a future,
+  separate operation.
+
+## [0.15.0] - 2026-09-28
+
+### Added
+- HTTPS hostname routes can now configure per-ingress TLS with
+  `--origin-server-name`, `--verify-tls`, or the explicitly unsafe
+  `--no-tls-verify`.
+- The TUI offers an Origin TLS step for HTTPS origins: choose whether to send
+  the public hostname as SNI and whether to verify the origin certificate.
+  The reviewed plan makes both choices visible before apply.
+
+### Fixed
+- Updating an existing hostname with explicit Origin TLS choices replaces only
+  that rule's nested `originRequest`; settings for other hostname rules remain
+  intact.
+
+## [0.14.3] - 2026-09-28
+
+### Fixed
+- The TUI now retains a bounded, redacted copy of stderr from interactive
+  login and hostname-apply commands in its Activity panel, so the dashboard
+  retains actionable failure detail after it redraws.
+- Cloudflare tunnel discovery now reports the safe reason it rejected a
+  successful-but-unusable response (JSON shape, exact-name ambiguity, or UUID
+  issue) while remaining fail-closed and never printing the remote payload.
+
+## [0.14.2] - 2026-09-28
+
+### Fixed
+- Accepted the current `cloudflared tunnel list --name ... --output json`
+  successful no-match response (`null`) as an empty exact-name discovery.
+  Other malformed, ambiguous, or non-zero responses remain fail-closed.
+
+## [0.14.1] - 2026-09-28
+
+### Added
+- The TUI now preserves an in-session Activity log for external login and
+  hostname-apply handoffs. It records the full non-secret invocation, outcome,
+  and exit code so a failed apply is visible after the dashboard returns.
+
+## [0.14.0] - 2026-09-25
+
+### Added
+- Added `cftunnel add --plan --output json`, a local hostname-addition plan
+  exposing the recommended tunnel, DNS action, restart impact, and sudo need.
+- Added the TUI `n` hostname wizard: hostname label, type, origin service, plan
+  review, and explicit apply handoff to `cftunnel add --yes`.
+
+### Fixed
+- Updating an existing tunnel ingress now explicitly restarts its systemd unit
+  so cloudflared loads the changed configuration.
+
 ## [0.13.1] - 2026-09-25
 
 ### Changed

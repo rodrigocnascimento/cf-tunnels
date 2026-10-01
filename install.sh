@@ -11,7 +11,8 @@ set -euo pipefail
 #
 # Options:
 #   --skip-cloudflared    Skip cloudflared installation
-#   --skip-auth           Skip Cloudflare authentication
+#   --skip-auth           Skip authentication (the default)
+#   --legacy-auth         Run the legacy global Cloudflare login
 #   --skip-symlink        Skip creating /usr/local/bin symlink
 #   --force               Overwrite existing files
 #   --help                Show this help message
@@ -26,12 +27,13 @@ NC='\033[0m' # No Color
 
 # Script directory (where this script is located)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/tui-runtime.sh"
 CLOUDFLARED_DIR="$HOME/.cloudflared"
 SYSTEMD_TEMPLATE="/etc/systemd/system/cloudflared@.service"
 
 # Flags
 SKIP_CLOUDFLARED=false
-SKIP_AUTH=false
+SKIP_AUTH=true
 SKIP_SYMLINK=false
 FORCE=false
 
@@ -79,6 +81,10 @@ parse_args() {
 			SKIP_AUTH=true
 			shift
 			;;
+		--legacy-auth)
+			SKIP_AUTH=false
+			shift
+			;;
 		--skip-symlink)
 			SKIP_SYMLINK=true
 			shift
@@ -109,14 +115,15 @@ Usage:
 
 Options:
     --skip-cloudflared    Skip cloudflared installation
-    --skip-auth           Skip Cloudflare authentication
+    --skip-auth           Skip authentication (the default)
+    --legacy-auth         Run the legacy global Cloudflare login
     --skip-symlink        Skip creating /usr/local/bin symlink
     --force               Overwrite existing files
     --help, -h            Show this help message
 
 Examples:
-    ./install.sh                    # Full installation
-    ./install.sh --skip-auth       # Skip authentication (already done)
+    ./install.sh                    # Install; authenticate later per zone
+    ./install.sh --legacy-auth     # Run legacy global Cloudflare login
     ./install.sh --skip-symlink   # Skip symlink (use PATH export instead)
 
 HELP
@@ -228,7 +235,7 @@ install_cloudflared() {
 
 authenticate_cloudflared() {
 	if [[ "$SKIP_AUTH" == true ]]; then
-		log_info "Skipping authentication (--skip-auth)"
+		log_info "Skipping global Cloudflare login; authenticate each zone with: cftunnel zone login"
 		return 0
 	fi
 
@@ -399,6 +406,29 @@ make_executable() {
 	log_success "run.sh is now executable"
 }
 
+ensure_bundled_runtime() {
+	local runtime="$SCRIPT_DIR/packages/tui/dist/cftunnel-runtime"
+	need jq
+	need sha256sum
+	if [[ -e "$runtime" || -e "$runtime.manifest.json" ]]; then
+		if verify_cftunnel_runtime "$SCRIPT_DIR" "$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"; then
+			log_success "Bundled cftunnel runtime is verified"
+			return 0
+		fi
+		[[ "$FORCE" == true ]] || die "Bundled cftunnel runtime failed verification; use --force with Bun installed to rebuild it"
+		command -v bun >/dev/null 2>&1 || die "Bundled cftunnel runtime failed verification; install Bun and rerun with --force to rebuild it"
+	fi
+	if command -v bun >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/packages/tui/package.json" ]]; then
+		log_info "Installing build-time TUI dependencies..."
+		(cd "$SCRIPT_DIR/packages/tui" && bun install --frozen-lockfile) || die "Failed to install TUI build dependencies"
+		log_info "Building the bundled TUI and logging runtime..."
+		(cd "$SCRIPT_DIR/packages/tui" && bun run build) || die "Failed to build the cftunnel runtime"
+		verify_cftunnel_runtime "$SCRIPT_DIR" "$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")" || die "The build did not produce a valid cftunnel runtime"
+		return 0
+	fi
+	die "This source checkout has no bundled TUI runtime. Install the cftunnel release archive for your Linux architecture, or install Bun and run the installer again to build it."
+}
+
 # =============================================================================
 # Create Symlink
 # =============================================================================
@@ -410,27 +440,34 @@ create_symlink() {
 	fi
 
 	local symlink_path="/usr/local/bin/cftunnel"
+	local target_path="$SCRIPT_DIR/run.sh"
 
 	log_info "Creating symlink at $symlink_path..."
 
-	# Check if already exists
-	if [[ -L "$symlink_path" ]] || [[ -f "$symlink_path" ]]; then
-		if [[ "$FORCE" == true ]]; then
-			sudo rm -f "$symlink_path"
-		else
-			log_success "Symlink already exists: $symlink_path"
+	if [[ -L "$symlink_path" ]]; then
+		if [[ "$(readlink -f "$symlink_path" 2>/dev/null || true)" == "$target_path" ]]; then
+			log_success "Symlink already targets this cftunnel installation"
 			return 0
 		fi
+		if [[ "$FORCE" != true ]]; then
+			local existing_target
+			existing_target="$(readlink "$symlink_path" 2>/dev/null || echo 'an unknown target')"
+			die "$symlink_path already points to $existing_target; rerun with --force to replace it"
+		fi
+		sudo rm -f "$symlink_path" || die "Failed to remove the existing cftunnel symlink"
+	elif [[ -e "$symlink_path" ]]; then
+		[[ "$FORCE" == true ]] || die "$symlink_path already exists and is not a symlink; rerun with --force to replace it"
+		sudo rm -f "$symlink_path" || die "Failed to remove the existing cftunnel file"
 	fi
 
 	# Create symlink
 	if [[ $EUID -eq 0 ]]; then
-		ln -sf "$SCRIPT_DIR/run.sh" "$symlink_path" || die "Failed to create symlink"
+		ln -sf "$target_path" "$symlink_path" || die "Failed to create symlink"
 	else
-		sudo ln -sf "$SCRIPT_DIR/run.sh" "$symlink_path" || die "Failed to create symlink (needs sudo)"
+		sudo ln -sf "$target_path" "$symlink_path" || die "Failed to create symlink (needs sudo)"
 	fi
 
-	log_success "Symlink created: $symlink_path -> $SCRIPT_DIR/run.sh"
+	log_success "Symlink created: $symlink_path -> $target_path"
 }
 
 # =============================================================================
@@ -477,6 +514,10 @@ show_summary() {
 	echo
 	echo "     cftunnel list"
 	echo
+	echo "  4. Open the operational dashboard:"
+	echo
+	echo "     cftunnel tui"
+	echo
 	echo "════════════════════════════════════════════════════════════════"
 	echo
 	echo -e "${BLUE}Documentation:${NC} https://github.com/rodrigocnascimento/cf-tunnels/wiki"
@@ -497,6 +538,7 @@ main() {
 
 	parse_args "$@"
 	check_permissions
+	ensure_bundled_runtime
 
 	echo
 	echo "Selected options:"

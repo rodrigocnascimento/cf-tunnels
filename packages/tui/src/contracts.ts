@@ -27,6 +27,38 @@ export type Zone = {
 };
 export type ZoneInventory = {default_zone: string | null; zones: Zone[]};
 export type ZoneUse = {zone: string; persisted: true; directory_created: boolean};
+export type HostnamePlan = {
+	zone: string | null;
+	hostname: string;
+	type: "http" | "ssh" | "tcp";
+	service: string;
+	tunnel_name: string;
+	unit: string;
+	yaml: string;
+	existing_tunnel: boolean;
+	existing_hostname: boolean;
+	restart_required: boolean;
+	origin_tls: {server_name: string | null; verify: boolean; configured: boolean};
+	dns: {mode: "automatic"};
+	privilege: {sudo_required: true};
+};
+export type HostnameRemovalPlan = {
+	zone: string;
+	hostname: string;
+	tunnel_name: string;
+	yaml: string;
+	remaining_hostname_count: number;
+	dns: {action: "unchanged"; reason: string};
+	privilege: {sudo_required: true};
+};
+export type ActivityLogEvent = {
+	schema_version: 1;
+	timestamp: string;
+	type: "activity" | "cloudflare" | "systemd" | "journal" | "system";
+	level: "debug" | "info" | "success" | "warning" | "error";
+	message: string;
+	context?: Record<string, unknown>;
+};
 export type Health = {
 	scope_zone: string | null;
 	checked_at: string;
