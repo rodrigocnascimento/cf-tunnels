@@ -36,11 +36,15 @@ Your server connects outward to Cloudflare, so the local application does not ne
 - **Operational TUI** — `cftunnel tui` launches a self-contained Ink dashboard with tunnel summaries, local routes, systemd state, and explicit health checks through the same hardened CLI contracts.
 - **Multiple origin types** — HTTP/HTTPS, SSH, and generic TCP services.
 
-## A first look
+## How to install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rodrigocnascimento/cf-tunnels/main/install-cftunnel.sh | bash
+```
 
+## A first look
+
+```bash
 cftunnel zone use example.com
 cftunnel zone login
 
