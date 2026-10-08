@@ -12,6 +12,7 @@ export type Tunnel = {
 	uuid: string | null;
 	unit: string;
 	status: "active" | "enabled" | "inactive" | "failed" | "unavailable";
+	boot_state: string;
 	config: {yaml: {present: boolean; mode: string | null}; credential: {present: boolean; mode: string | null}; issues: string[]};
 	routes: Array<{hostname: string; service: string}>;
 };
@@ -67,7 +68,7 @@ export type Health = {
 		name: string;
 		unit: string;
 		config: {mode: string | null; uuid: string | null; credential: {present: boolean; mode: string | null}};
-		systemd: {source: "systemd"; status: string};
+		systemd: {source: "systemd"; status: string; boot_state: string};
 		routes: Array<{hostname: string; service: string; dns: {result: string | null; checked_at: string}}>
 	}>;
 };

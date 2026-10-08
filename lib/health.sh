@@ -35,13 +35,14 @@ file_mode_or_null() {
 
 health_entry_json() {
 	local yaml="${1:-}"
-	local zone_name name raw_uuid uuid unit status config_mode credential_path credential_mode
+	local zone_name name raw_uuid uuid unit status boot_state config_mode credential_path credential_mode
 	zone_name="$(basename "$(dirname "$yaml")")"
 	name="$(basename "$yaml" .yml)"
 	raw_uuid="$(tunnel_uuid_from_yaml "$yaml")"
 	uuid="$(validate_tunnel_uuid "$raw_uuid" 2>/dev/null || true)"
 	unit="cloudflared@${zone_name}_${name}.service"
 	status="$(systemd_unit_status "$unit")"
+	boot_state="$(systemd_unit_boot_state "$unit")"
 	config_mode="$(file_mode_or_null "$yaml")"
 	credential_path="$(credentials_file_from_yaml "$yaml")"
 	credential_mode="$(file_mode_or_null "$credential_path")"
@@ -72,6 +73,7 @@ health_entry_json() {
 		--arg name "$name" \
 		--arg unit "$unit" \
 		--arg status "$status" \
+		--arg boot_state "$boot_state" \
 		--arg uuid "$uuid" \
 		--arg config_mode "$config_mode" \
 		--arg credential_mode "$credential_mode" \
@@ -88,7 +90,7 @@ health_entry_json() {
 					mode: (if $credential_mode == "" then null else $credential_mode end)
 				}
 			},
-			systemd: {source: "systemd", status: $status},
+			systemd: {source: "systemd", status: $status, boot_state: $boot_state},
 			routes: $routes
 		}'
 }
