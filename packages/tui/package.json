@@ -7,7 +7,6 @@
     "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
     "build": "bash scripts/build-runtime.sh",
-    "demo:capture": "bun run scripts/capture-demo.tsx",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

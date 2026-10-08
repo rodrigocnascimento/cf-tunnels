@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.18.1] - 2026-10-08
 
 ### Changed
-- Added a reproducible terminal dashboard demo with explicitly labeled sample
+- Added a terminal dashboard demo with explicitly labeled sample
   data and a shorter introduction for developers evaluating cftunnel.
 - Updated the Wiki for release installation, the operational TUI, hostname
   planning/removal, health observations, and persistent activity logs.

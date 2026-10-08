@@ -45,10 +45,9 @@ invoke systemd directly. Core verification is manual +
 - Optional release verification: `bash tests/release-smoke.sh` tests the public
   release in a fresh rootless systemd container; `--candidate` tests a locally
   built runtime/bundle. It never mounts the host home or creates remote tunnels.
-- Demo media: from `packages/tui`, run `env -u NO_COLOR FORCE_COLOR=1 bun run
-  demo:capture`, then `python3 scripts/render-demo.py dist/demo-frames.json
-  ../../assets` (Pillow/font needed only for rendering). Keep sample-data labels;
-  the fixture client must never call cftunnel, Cloudflare, sudo, or systemd.
+- Keep sample-data labels on dashboard media. Media-generation utilities are
+  local-only and excluded from version control; only the finished assets are
+  tracked. Demo fixtures must never call cftunnel, Cloudflare, sudo, or systemd.
 
 ## Architecture
 
