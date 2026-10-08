@@ -4,7 +4,7 @@
 
 ## What This Is
 
-Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
+Bash CLI for managing Cloudflare Tunnels with per-tunnel systemd services and a bundled operational terminal dashboard.
 - **Entry point:** `run.sh` (symlinked as `cftunnel` after `./install.sh`)
 - **Installer:** `install.sh`
 - **Uninstaller:** `uninstall.sh`
@@ -15,9 +15,11 @@ Pure-shell CLI for managing Cloudflare Tunnels with per-tunnel systemd services.
 
 ## Project Type
 
-The hardened management core is Bash. The optional read-only TUI lives in
+The hardened management core is Bash. The operational TUI lives in
 `packages/tui/` and uses Ink + React/TypeScript on Bun; it is a separate
-subprocess client of cftunnel's JSON contracts. Core verification is manual +
+subprocess client of cftunnel's JSON contracts. Explicitly confirmed changes
+hand off to the hardened CLI; the TUI does not own Cloudflare credentials or
+invoke systemd directly. Core verification is manual +
 `bash -n`; TUI verification uses `cd packages/tui && bun run typecheck && bun test`.
 
 ## Documentation Policy
@@ -33,11 +35,20 @@ subprocess client of cftunnel's JSON contracts. Core verification is manual +
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (105 tests covering functions, zones, credential transactions and binding, safe removal, fail-closed remote discovery, local listing, parser, version reporting, YAML)
+- Test suite: `cd tests && ./run.sh` (functions, zones, credential transactions and binding, safe removal, fail-closed remote discovery, local listing, parser, version reporting, YAML, logging, and installer regressions)
 - Test suite with full output: `cd tests && ./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `cftunnel list` or creating a test tunnel with `cftunnel add`.
 - If modifying scripts, always run `bash -n <file>` before executing.
+- Rebuild ignored TUI runtime artifacts after changing the application version;
+  their manifest must match `VERSION`, the package version, target, and hash.
+- Optional release verification: `bash tests/release-smoke.sh` tests the public
+  release in a fresh rootless systemd container; `--candidate` tests a locally
+  built runtime/bundle. It never mounts the host home or creates remote tunnels.
+- Demo media: from `packages/tui`, run `env -u NO_COLOR FORCE_COLOR=1 bun run
+  demo:capture`, then `python3 scripts/render-demo.py dist/demo-frames.json
+  ../../assets` (Pillow/font needed only for rendering). Keep sample-data labels;
+  the fixture client must never call cftunnel, Cloudflare, sudo, or systemd.
 
 ## Architecture
 

@@ -30,6 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/tui-runtime.sh"
 CLOUDFLARED_DIR="$HOME/.cloudflared"
 SYSTEMD_TEMPLATE="/etc/systemd/system/cloudflared@.service"
+CLOUDFLARED_BIN="$(command -v cloudflared || true)"
 
 # Flags
 SKIP_CLOUDFLARED=false
@@ -151,16 +152,32 @@ check_permissions() {
 # Cloudflared Installation
 # =============================================================================
 
+install_cloudflared_system_binary() {
+	local source_bin="$1" system_bin="/usr/local/bin/cloudflared"
+	if [[ ! "$source_bin" -ef "$system_bin" ]]; then
+		if [[ $EUID -eq 0 ]]; then
+			install -m 755 "$source_bin" "$system_bin" || die "Failed to install cloudflared at $system_bin"
+		else
+			sudo install -m 755 "$source_bin" "$system_bin" || die "Failed to install cloudflared at $system_bin"
+		fi
+	fi
+	CLOUDFLARED_BIN="$system_bin"
+	log_success "cloudflared available at $CLOUDFLARED_BIN for the CLI and systemd"
+}
+
 install_cloudflared() {
 	if [[ "$SKIP_CLOUDFLARED" == true ]]; then
+		[[ -x /usr/local/bin/cloudflared ]] || die "--skip-cloudflared requires an executable at /usr/local/bin/cloudflared for the systemd template"
+		CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
 		log_info "Skipping cloudflared installation (--skip-cloudflared)"
 		return 0
 	fi
 
-	if command -v cloudflared >/dev/null 2>&1; then
+	if [[ -n "$CLOUDFLARED_BIN" ]]; then
 		local version
-		version=$(cloudflared --version 2>/dev/null | head -1 || echo "unknown")
+		version=$("$CLOUDFLARED_BIN" --version 2>/dev/null | head -1 || echo "unknown")
 		log_success "cloudflared already installed: $version"
+		install_cloudflared_system_binary "$CLOUDFLARED_BIN"
 		return 0
 	fi
 
@@ -186,20 +203,24 @@ install_cloudflared() {
 	# Determine final location
 	local bin_dir="$HOME/.local/bin"
 	local final_bin="$bin_dir/cloudflared"
-	local system_bin="/usr/local/bin/cloudflared"
 
 	log_info "Downloading cloudflared for linux-${arch}..."
 
 	if command -v curl >/dev/null 2>&1; then
 		mkdir -p "$bin_dir"
-		local attempt=0
+		local attempt=0 downloaded=false
 		while [ $attempt -lt 5 ]; do
 			attempt=$((attempt + 1))
-			curl -fSL --http1.1 --retry 3 --retry-delay 10 "$download_url" -o "$final_bin" && break
-			log_warning "Attempt $attempt/5 failed. Retrying in 10s..."
-			sleep 10
+			if curl -fSL --http1.1 --retry 3 --retry-delay 10 "$download_url" -o "$final_bin"; then
+				downloaded=true
+				break
+			fi
+			if [[ $attempt -lt 5 ]]; then
+				log_warning "Attempt $attempt/5 failed. Retrying in 10s..."
+				sleep 10
+			fi
 		done
-		if [ $attempt -ge 5 ] && [ ! -f "$final_bin" ]; then
+		if [[ "$downloaded" != true ]]; then
 			die "Failed to download cloudflared after 5 attempts"
 		fi
 	elif command -v wget >/dev/null 2>&1; then
@@ -211,21 +232,12 @@ install_cloudflared() {
 
 	chmod +x "$final_bin"
 
-	# Attempt system-wide install if writable
-	if [[ -w /usr/local/bin ]] || [[ $EUID -eq 0 ]]; then
-		sudo mv "$final_bin" "$system_bin" || mv "$final_bin" "$system_bin"
-		sudo chmod +x "$system_bin"
-		log_success "cloudflared installed at $system_bin"
-	else
-		log_success "cloudflared installed at $final_bin"
-		log_warning "Add $bin_dir to your PATH if not already present"
-	fi
-
-	# Ensure ~/.local/bin is in PATH for verification
-	export PATH="$HOME/.local/bin:$PATH"
+	# The template and future CLI sessions must resolve the same executable,
+	# including when the regular user's system bin directory is not writable.
+	install_cloudflared_system_binary "$final_bin"
 
 	# Verify installation
-	cloudflared --version | head -1 || die "Failed to verify installation"
+	"$CLOUDFLARED_BIN" --version | head -1 || die "Failed to verify installation"
 	log_success "cloudflared installed successfully!"
 }
 
@@ -250,7 +262,7 @@ authenticate_cloudflared() {
 	echo
 
 	if command -v cloudflared >/dev/null 2>&1; then
-		cloudflared tunnel login || die "Authentication failed. Please try again."
+		"$CLOUDFLARED_BIN" tunnel login || die "Authentication failed. Please try again."
 		log_success "Authentication complete!"
 	else
 		die "cloudflared is not installed. Run ./install.sh first or use --skip-cloudflared"
@@ -498,23 +510,28 @@ show_summary() {
 	echo
 	echo "Next steps:"
 	echo
-	echo "  1. Create your first tunnel:"
+	echo "  1. Register and authenticate your Cloudflare zone:"
 	echo
-	echo "     cftunnel add --hostname api.yourdomain.com --type http --service http://localhost:3000"
+	echo "     cftunnel zone use example.com"
+	echo "     cftunnel zone login"
 	echo
-	echo "  2. For TCP/UDP tunnels (Redis, PostgreSQL, etc.):"
+	echo "  2. Create your first HTTP tunnel:"
+	echo
+	echo "     cftunnel add --hostname app.example.com --type http --service http://localhost:3000"
+	echo
+	echo "  3. For TCP tunnels (Redis, PostgreSQL, etc.):"
 	echo
 	echo "     # On the server:"
-	echo "     cftunnel add --hostname redis.yourdomain.com --type tcp --service tcp://localhost:6379"
+	echo "     cftunnel add --hostname redis.example.com --type tcp --service tcp://localhost:6379"
 	echo
 	echo "     # On the client (to access):"
-	echo "     cloudflared access tcp --hostname redis.yourdomain.com --url localhost:6379"
+	echo "     cloudflared access tcp --hostname redis.example.com --url localhost:6379"
 	echo
-	echo "  3. List all tunnels:"
+	echo "  4. List local routes in the active zone:"
 	echo
 	echo "     cftunnel list"
 	echo
-	echo "  4. Open the operational dashboard:"
+	echo "  5. Open the operational dashboard:"
 	echo
 	echo "     cftunnel tui"
 	echo
@@ -559,4 +576,6 @@ main() {
 	show_summary
 }
 
-main "$@"
+if [[ "${CFTUNNEL_INSTALLER_LIBRARY_ONLY:-false}" != "true" ]]; then
+	main "$@"
+fi

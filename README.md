@@ -1,7 +1,7 @@
-# Cloudflare Tunnel Manager
+# cftunnel — Cloudflare Tunnel Manager
 
 <p align="center">
-  <img src="assets/logo-cf-tunnel.png" alt="Cloudflare Tunnel Manager" width="400">
+  <img src="assets/logo-cf-tunnel.png" alt="Cloudflare Tunnel Manager" width="220">
 </p>
 
 <p align="center">
@@ -10,9 +10,13 @@
   <img src="https://img.shields.io/badge/Cloudflare-Tunnel-orange?style=for-the-badge&logo=cloudflare" alt="Cloudflare Tunnel">
 </p>
 
-`cftunnel` is a small, opinionated CLI for exposing services through Cloudflare Tunnel without hand-writing YAML, DNS routes, or systemd units.
+`cftunnel` is an open-source CLI and terminal dashboard for exposing and operating services through Cloudflare Tunnel on Linux. It coordinates hostname routes, private configuration, zone credentials, and systemd services so you can publish an application without assembling those pieces by hand.
 
-Its goal is simple: make each tunnel easy to understand, isolated by DNS zone, safe to operate, and boring to recover.
+Built for developers who run services on Linux servers, with HTTP/HTTPS, SSH, and TCP origins.
+
+[![cftunnel terminal dashboard with example data](assets/cftunnel-tui.png)](assets/cftunnel-demo.gif)
+
+[Watch the 30-second dashboard demo](assets/cftunnel-demo.gif). Captured from the actual TUI with labeled sample data.
 
 ## The idea
 
@@ -24,17 +28,17 @@ flowchart LR
     CF --> Service[Local HTTP, SSH, or TCP service]
 ```
 
-Your server connects outward to Cloudflare, so the local application does not need a directly exposed inbound port. cftunnel coordinates the Cloudflare tunnel, hostname route, local credentials, YAML configuration, and hardened systemd service.
+Your server connects outward to Cloudflare, so the application does not need a directly exposed inbound port. Application authentication and Cloudflare Access policies remain your choice.
 
 ## What makes it different
 
-- **One tunnel, one config, one service** — every tunnel has its own private YAML and systemd instance.
+- **One tunnel, one config, one service** — each tunnel has a private YAML and systemd instance; several hostnames can share a tunnel.
 - **Zone isolation** — each Cloudflare DNS zone keeps separate configuration and bound management credentials.
-- **Safe defaults** — hostname containment, private file modes, fail-closed removal, and crash-recoverable credential refresh.
+- **Reviewed changes** — preview hostname changes with `--plan`; invalid hostnames and uncertain Cloudflare responses stop before applying changes.
+- **Safe defaults** — private configuration, verified credential binding, recoverable credential refresh, and hardened systemd units.
 - **Automatic routing** — creates the Cloudflare tunnel and DNS route, with `--no-dns` when DNS is managed elsewhere.
-- **Local truth** — `cftunnel list` reports routes from local YAML without requiring Cloudflare or network access.
-- **Operational TUI** — `cftunnel tui` launches a self-contained Ink dashboard with tunnel summaries, local routes, systemd state, and explicit health checks through the same hardened CLI contracts.
-- **Multiple origin types** — HTTP/HTTPS, SSH, and generic TCP services.
+- **Visible state** — local routes, credential readiness, current service state, boot enablement, explicit health observations, and persistent activity logs in the TUI.
+- **Scriptable and local** — JSON inventory contracts and offline route listing; the CLI remains usable alongside the dashboard.
 
 ## How to install
 
@@ -65,13 +69,7 @@ only for system files. Zone authentication happens explicitly later with
 activity-log runtime; Bun is not needed on the server. `cftunnel tui-dev` is
 reserved for contributors using a source checkout.
 
-The normal lifecycle is:
-
-1. Register a canonical Cloudflare zone locally.
-2. Authenticate that zone and bind its credential metadata.
-3. Add a hostname route to a local service.
-4. Let cftunnel validate, configure DNS, and start the systemd unit.
-5. Operate it with `list`, `status`, `logs`, `start`, `stop`, and `remove`.
+Replace `example.com` with your active Cloudflare zone and use a listening local origin. Add `--plan` to preview a hostname change without applying it. The [Getting Started guide](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Getting-Started) walks through a test origin, creation, inspection, and cleanup.
 
 ## Requirements
 
@@ -91,17 +89,19 @@ contains a platform-specific runtime for `cftunnel tui` and `cftunnel log`.
 The complete documentation lives in the **[cftunnel Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)**.
 
 - [Getting Started](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Getting-Started)
+- [Installation and Updates](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Installation)
 - [Set Up a New Domain](https://github.com/rodrigocnascimento/cf-tunnels/wiki/New-Domain-Setup)
 - [CLI Reference](https://github.com/rodrigocnascimento/cf-tunnels/wiki/CLI-Reference)
 - [Zones and Credentials](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Zones-and-Credentials)
 - [Tunnel Types](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Tunnel-Types)
 - [Operations and Troubleshooting](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Operations-and-Troubleshooting)
 - [Operational TUI](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Operational-TUI)
+- [Activity Logs](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Activity-Logs)
 - [Security Model](https://github.com/rodrigocnascimento/cf-tunnels/wiki/Security-Model)
 
 ## Project status
 
-The project is actively evolving and intentionally targets a focused Linux/systemd workflow. Check [CHANGELOG.md](CHANGELOG.md) for releases and `cftunnel --version` for the installed application version.
+Actively maintained and pre-1.0, with a focused Linux/systemd workflow. See [published releases](https://github.com/rodrigocnascimento/cf-tunnels/releases), [CHANGELOG.md](CHANGELOG.md), and `cftunnel --version`. The manager covers locally configured tunnels; it does not import remote-only tunnels or manage Cloudflare Access policies.
 
 ## Contributing
 

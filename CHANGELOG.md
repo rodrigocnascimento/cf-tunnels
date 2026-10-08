@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-08
+
+### Changed
+- Added a reproducible terminal dashboard demo with explicitly labeled sample
+  data and a shorter introduction for developers evaluating cftunnel.
+- Updated the Wiki for release installation, the operational TUI, hostname
+  planning/removal, health observations, and persistent activity logs.
+
+### Fixed
+- Release bootstrap cleanup no longer references an expired local variable,
+  preventing a successful installation from exiting with an error.
+- Regular-user installation makes cloudflared available at the systemd
+  template's executable path; existing binaries are reused there as well.
+- Failed cloudflared downloads remain failures even if a partial file exists.
+- Activity-log zone context/filtering and explicit output format now survive
+  the CLI's global-option parsing before reaching the logging runtime.
+- Installer next steps now register and authenticate a zone before creating
+  its first tunnel, and correctly describe TCP support without claiming UDP.
+- CLI help now describes the operational TUI and uses hostname examples
+  contained by their selected zone.
+
 ## [0.18.0] - 2026-10-08
 
 ### Added

@@ -1,12 +1,13 @@
 {
   "name": "@cftunnel/tui",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.tsx",
     "start": "bun run src/index.tsx",
     "build": "bash scripts/build-runtime.sh",
+    "demo:capture": "bun run scripts/capture-demo.tsx",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

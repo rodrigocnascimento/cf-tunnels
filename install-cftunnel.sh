@@ -71,6 +71,17 @@ download_asset() {
 	fi
 }
 
+register_download_cleanup() {
+	local cleanup_command
+	# EXIT runs after main's locals have gone out of scope. Store the private
+	# directory as a shell-quoted literal rather than a reference to a local.
+	printf -v cleanup_command 'rm -rf -- %q' "$1"
+	trap "$cleanup_command" EXIT
+	trap 'exit 129' HUP
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+}
+
 main() {
 	if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 		show_help
@@ -93,10 +104,7 @@ main() {
 	checksum_asset="$asset.sha256"
 	base_url="https://github.com/$REPOSITORY/releases/latest/download"
 	temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cftunnel-install.XXXXXX")" || die "could not create a temporary download directory"
-	trap 'rm -rf -- "$temp_dir"' EXIT
-	trap 'exit 129' HUP
-	trap 'exit 130' INT
-	trap 'exit 143' TERM
+	register_download_cleanup "$temp_dir"
 	archive="$temp_dir/$asset"
 	checksum_file="$temp_dir/$checksum_asset"
 

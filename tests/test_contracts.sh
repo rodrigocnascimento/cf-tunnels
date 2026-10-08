@@ -224,6 +224,22 @@ test_tui_dev_launches_checkout_tui_with_source_cli() {
 	assert_eq "$PROJECT_DIR/run.sh|run $PROJECT_DIR/packages/tui/src/index.tsx" "$(cat "$launch_log")" "tui-dev command boundary"
 }
 
+test_log_zone_filter_and_text_output() {
+	if [[ ! -x "$PROJECT_DIR/packages/tui/dist/cftunnel-runtime" ]] && ! command -v bun >/dev/null 2>&1; then
+		echo "log runtime integration requires Bun or a compiled release runtime; skipped"
+		return
+	fi
+	local output
+	RUN_USER="cftunnel-test-user-that-does-not-exist" "$PROJECT_DIR/run.sh" log write --zone example.com --type system --level info --message 'example.com event'
+	RUN_USER="cftunnel-test-user-that-does-not-exist" "$PROJECT_DIR/run.sh" log write --zone example.net --type system --level info --message 'example.net event'
+	output="$(RUN_USER="cftunnel-test-user-that-does-not-exist" "$PROJECT_DIR/run.sh" log query --zone example.com --output json)"
+	jq -e '[.data.events[].message] == ["example.com event"]' <<< "$output" >/dev/null
+	output="$(RUN_USER="cftunnel-test-user-that-does-not-exist" "$PROJECT_DIR/run.sh" log query --zone example.net --output text)"
+	assert_contains "$output" 'example.net event'
+	assert_not_contains "$output" 'example.com event'
+	assert_not_contains "$output" '"schema_version"'
+}
+
 test_tui_production_command_reports_missing_runtime_in_source_checkout() {
 	local runtime="$PROJECT_DIR/packages/tui/dist/cftunnel-runtime"
 	if [[ -e "$runtime" ]]; then
