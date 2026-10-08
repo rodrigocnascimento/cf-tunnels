@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-08
+
 ### Added
 - Added a `curl | bash` Linux installer that selects the x64/ARM64 release,
   verifies its SHA-256 sidecar and archive contents, then installs the bundle
@@ -15,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bundled in Linux x64/arm64 release archives; Bun is not required on servers.
 - Tagged releases build, test, package, and publish architecture-specific CLI
   bundles with a runtime manifest and SHA-256 verification.
+- The TUI now distinguishes zone credential state, current systemd runtime
+  state, and startup-at-boot state, and warns when a running service is
+  disabled for the next boot.
 
 ### Fixed
 - Installation no longer starts a global Cloudflare login; credentials are
@@ -24,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that points at another installation.
 - Production TUI startup verifies the runtime manifest and the local JSON
   contract before launching.
+- The release workflow archives the checked-out version tag when manually
+  publishing an existing release.
 
 ## [0.17.0] - 2026-09-29
 
