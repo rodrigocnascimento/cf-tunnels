@@ -659,16 +659,18 @@ op_status() {
 	unit="$(instance_unit "$NAME")"
 	if json_enabled; then
 		need jq
-		local status scope_zone data
+		local status boot_state scope_zone data
 		status="$(systemd_unit_status "$unit")"
+		boot_state="$(systemd_unit_boot_state "$unit")"
 		scope_zone="$(json_nullable_string "${ZONE:-}")"
 		data="$(jq -cn \
 			--arg name "$NAME" \
 			--arg unit "$unit" \
 			--arg status "$status" \
+			--arg boot_state "$boot_state" \
 			--arg checked_at "$(utc_now)" \
 			--argjson zone "$scope_zone" \
-			'{zone: $zone, name: $name, unit: $unit, status: $status, source: "systemd", checked_at: $checked_at}')"
+			'{zone: $zone, name: $name, unit: $unit, status: $status, boot_state: $boot_state, source: "systemd", checked_at: $checked_at}')"
 		json_success "tunnel.status" "$data"
 		return
 	fi
@@ -771,13 +773,14 @@ op_list_json() {
 	local entries=()
 	local yaml
 	while IFS= read -r -d '' yaml; do
-		local zone_name name raw_uuid uuid unit status routes config_mode credential_path credential_mode issues
+		local zone_name name raw_uuid uuid unit status boot_state routes config_mode credential_path credential_mode issues
 		zone_name="$(basename "$(dirname "$yaml")")"
 		name="$(basename "$yaml" .yml)"
 		raw_uuid="$(tunnel_uuid_from_yaml "$yaml")"
 		uuid="$(validate_tunnel_uuid "$raw_uuid" 2>/dev/null || true)"
 		unit="cloudflared@${zone_name}_${name}.service"
 		status="$(systemd_unit_status "$unit")"
+		boot_state="$(systemd_unit_boot_state "$unit")"
 		config_mode="$(file_mode_or_null "$yaml")"
 		credential_path="$(credentials_file_from_yaml "$yaml")"
 		credential_mode="$(file_mode_or_null "$credential_path")"
@@ -800,11 +803,12 @@ op_list_json() {
 			--arg uuid "$uuid" \
 			--arg unit "$unit" \
 			--arg status "$status" \
+			--arg boot_state "$boot_state" \
 			--arg config_mode "$config_mode" \
 			--arg credential_mode "$credential_mode" \
 			--argjson issues "$issues" \
 			--argjson routes "$routes" \
-			'{zone: $zone, name: $name, uuid: (if $uuid == "" then null else $uuid end), unit: $unit, status: $status, config: {yaml: {present: ($config_mode != ""), mode: (if $config_mode == "" then null else $config_mode end)}, credential: {present: ($credential_mode != ""), mode: (if $credential_mode == "" then null else $credential_mode end)}, issues: $issues}, routes: $routes}')")
+			'{zone: $zone, name: $name, uuid: (if $uuid == "" then null else $uuid end), unit: $unit, status: $status, boot_state: $boot_state, config: {yaml: {present: ($config_mode != ""), mode: (if $config_mode == "" then null else $config_mode end)}, credential: {present: ($credential_mode != ""), mode: (if $credential_mode == "" then null else $credential_mode end)}, issues: $issues}, routes: $routes}')")
 	done < <(list_yaml_files)
 
 	local tunnels scope_zone data

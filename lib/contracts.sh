@@ -40,6 +40,21 @@ systemd_unit_status() {
 	fi
 }
 
+systemd_unit_boot_state() {
+	local unit="${1:-}" state
+	if ! command -v systemctl >/dev/null 2>&1; then
+		printf '%s\n' unavailable
+		return
+	fi
+	state="$(LC_ALL=C systemctl is-enabled "$unit" 2>/dev/null || true)"
+	case "$state" in
+	enabled | enabled-runtime | disabled | static | indirect | masked | masked-runtime | generated | transient | linked | linked-runtime | alias | bad-setting | not-found)
+		printf '%s\n' "$state"
+		;;
+	*) printf '%s\n' unknown ;;
+	esac
+}
+
 json_nullable_string() {
 	local value="${1:-}"
 	need jq
