@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   disabled for the next boot.
 
 ### Fixed
+- The TUI package version now stays aligned with the application version used
+  by release builds and runtime manifests.
 - Installation no longer starts a global Cloudflare login; credentials are
   configured explicitly and isolated per zone with `cftunnel zone login`.
 - The installer verifies packaged runtimes, installs locked build dependencies
