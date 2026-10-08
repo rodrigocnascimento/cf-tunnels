@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish (for example, v0.17.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -23,10 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
       - name: Validate release tag
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: test "$TAG" = "v$(tr -d '[:space:]' < VERSION)"
       - uses: oven-sh/setup-bun@v2
         with:
@@ -72,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@v4
         with:
           pattern: cftunnel-linux-*
@@ -81,7 +87,7 @@ jobs:
       - name: Create or update GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
           gh release upload "$TAG" release-assets/* --clobber
