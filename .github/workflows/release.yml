@@ -58,7 +58,7 @@ jobs:
         run: |
           stage="$RUNNER_TEMP/cftunnel-release"
           mkdir -p "$stage/cf-tunnels/packages/tui/dist"
-          git archive "$GITHUB_SHA" | tar -x -C "$stage/cf-tunnels"
+          git archive HEAD | tar -x -C "$stage/cf-tunnels"
           cp packages/tui/dist/cftunnel-runtime* "$stage/cf-tunnels/packages/tui/dist/"
           archive="$RUNNER_TEMP/cftunnel-linux-$ARCH.tar.gz"
           tar -czf "$archive" -C "$stage" cf-tunnels
