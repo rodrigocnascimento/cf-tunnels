@@ -28,3 +28,21 @@ if verify_release_checksum "$archive" "$checksum" "cftunnel-linux-x64.tar.gz" >/
 fi
 
 echo "release installer checksum and archive checks passed"
+
+# EXIT must work after main's local variables leave scope, preserve failures,
+# and quote temporary paths rather than evaluate them.
+for expected_status in 0 7; do
+	cleanup_target="$test_dir/download directory 'quoted' $expected_status"
+	mkdir -p "$cleanup_target"
+	actual_status=0
+	CFTUNNEL_INSTALLER_LIBRARY_ONLY=true bash -c '
+		set -euo pipefail
+		source "$1"
+		setup() { local temp_dir="$2"; register_download_cleanup "$temp_dir"; }
+		setup "$@"
+		exit "$3"
+	' bash "$PROJECT_DIR/install-cftunnel.sh" "$cleanup_target" "$expected_status" || actual_status=$?
+	[[ "$actual_status" -eq "$expected_status" ]] || { echo "download cleanup changed the installer exit status" >&2; exit 1; }
+	[[ ! -e "$cleanup_target" ]] || { echo "download cleanup left its temporary directory behind" >&2; exit 1; }
+done
+echo "release installer cleanup preserves status after function return"

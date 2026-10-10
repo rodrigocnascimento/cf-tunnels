@@ -91,6 +91,7 @@ TEST_FILES=(
 	"$SCRIPT_DIR/test_add_remote_failures.sh"
 	"$SCRIPT_DIR/test_parser.sh"
 	"$SCRIPT_DIR/test_version.sh"
+	"$SCRIPT_DIR/test_installer.sh"
 	"$SCRIPT_DIR/test_yaml.sh"
 )
 
@@ -157,7 +158,7 @@ echo
 echo "Phase 4: CLI Tests"
 echo "──────────────────"
 
-for file in test_parser.sh test_version.sh; do
+for file in test_parser.sh test_version.sh test_installer.sh; do
 	file_path="$SCRIPT_DIR/$file"
 	echo "  → $file"
 	for func in $(grep -oE '^test_[a-zA-Z0-9_]+' "$file_path"); do

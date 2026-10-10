@@ -1,2 +1,5 @@
 packages/tui/node_modules/
 packages/tui/dist/
+packages/tui/scripts/capture-demo.tsx
+packages/tui/scripts/render-demo.py
+packages/tui/scripts/__pycache__/

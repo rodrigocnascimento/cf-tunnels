@@ -45,7 +45,7 @@ Commands:
   health        Check local tunnel configuration, systemd, and DNS state
   capabilities  Show supported machine-readable contract operations
   privilege     Check cached sudo availability for future TUI mutations
-  tui-dev       Launch the checkout's read-only Ink/Bun TUI
+  tui-dev       Launch the checkout's operational Ink/Bun TUI
   tui           Launch the installed production TUI (bundled runtime)
   log           Query local structured activity events
   version       Show the cftunnel version and exit
@@ -62,18 +62,18 @@ Zone commands:
   You can also use: cftunnel --zone <name> --persist
 
 Examples:
-  cftunnel --zone homelaberson.space start --name login
-  cftunnel start --name api --zone testes.lat
-  cftunnel --zone homelaberson.space list
-  cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22 --name ssh-config --zone homelaberson.space
+  cftunnel --zone example.com start --name example-com-http
+  cftunnel start --name api --zone example.net
+  cftunnel --zone example.com list
+  cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22 --name ssh-config --zone example.com
   cftunnel --version
   cftunnel cli-update
 
   # Zone workflow
-  cftunnel zone use homelaberson.space
-  cftunnel zone login              # saves cert to zones/homelaberson.space/
-  cftunnel list                    # will use homelaberson.space by default
-  cftunnel --zone testes.lat list  # temporary override
+  cftunnel zone use example.com
+  cftunnel zone login              # saves cert to zones/example.com/
+  cftunnel list                    # uses example.com by default
+  cftunnel --zone example.net list  # temporary override
 USAGE
 }
 
@@ -139,6 +139,7 @@ ARGS=("$@")
 PERSIST_ZONE=false
 ALL_ZONES=false
 OUTPUT_FORMAT="text"
+OUTPUT_FORMAT_SET=false
 current_default=""
 
 declare -a CLEAN_ARGS=()
@@ -165,6 +166,7 @@ while [[ $i -lt ${#ARGS[@]} ]]; do
         --output)
             if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
                 OUTPUT_FORMAT="${ARGS[$((i+1))]}"
+                OUTPUT_FORMAT_SET=true
                 ((i+=2)) || true
             else
                 die "--output requires a value"
@@ -218,6 +220,10 @@ tui)
 	run_tui_runtime tui
 	;;
 log)
+	# The first pass consumes these global flags; the logger needs the same
+	# values for context/filtering and for an explicitly requested output format.
+	[[ -z "$ZONE" ]] || set -- "$@" --zone "$ZONE"
+	[[ "$OUTPUT_FORMAT_SET" == false ]] || set -- "$@" --output "$OUTPUT_FORMAT"
 	run_tui_runtime log "$@"
 	;;
 esac
