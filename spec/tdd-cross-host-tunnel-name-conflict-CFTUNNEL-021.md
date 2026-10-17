@@ -35,13 +35,18 @@ tunnel whose credential lives on another machine, `add` offers a host-scoped
 name (`<derived>-<server-hostname>`) and, when even that is taken, prints an
 explicit command so the operator can choose a name.
 
+It also guarantees the failure modes around DNS never leave an orphan: `add`
+performs a best-effort DNS ownership check before creating anything and rolls
+back the tunnel and local files it created when configuration fails.
+
 ### Files in scope
 
 | File | Change |
 |------|--------|
-| `lib/tunnel.sh` | Cross-host detection + host-scoped name resolution in `op_add` |
-| `tests/test_add_remote_failures.sh` | Replace the obsolete reuse test; add conflict coverage |
-| `AGENTS.md` | Document the new `op_add` step |
+| `lib/tunnel.sh` | Cross-host detection, host-scoped name resolution, DNS preflight and rollback in `op_add` |
+| `tests/test_add_remote_failures.sh` | Replace the obsolete reuse test; add conflict, preflight and rollback coverage |
+| `install.sh` | Non-fatal `check_dns_tools` hint |
+| `AGENTS.md` | Document the new `op_add` steps |
 | `CHANGELOG.md` | Unreleased entry |
 
 ### Files NOT in scope
@@ -135,12 +140,51 @@ exact name and no local YAML already owning it).
 The generic post-create `credentials not found` message is also corrected to
 point at `--name` instead of `cloudflared tunnel login`.
 
+### CP-04: Best-effort DNS ownership preflight
+
+Before `sudo` and before creating anything, `op_add_dns_preflight` reads the
+public hostname with `resolve_hostname` (only when `dig`/`host` are available)
+and fails closed when it positively resolves to a *different* tunnel's
+`<uuid>.cfargotunnel.com` CNAME:
+
+```
+error: 'ollama.homelaberson.space' is already served by another tunnel (<uuid>).
+```
+
+This is deliberately best-effort and never a false positive:
+
+- A hostname owned by the tunnel being reused passes.
+- `--no-dns`, missing `dig`/`host`, an empty answer, or a non-tunnel record all
+  fall through without blocking. Proxied records are not visible to a public
+  resolver, so they also fall through.
+
+The preflight is an optimization; CP-05 is the guarantee.
+
+### CP-05: Roll back artifacts created by the failed run
+
+`op_add` splits DNS work into `op_add_route_dns` (ingress validation + CNAME
+creation) and `op_add_verify_dns` (propagation wait). When `op_add_route_dns`
+fails and **this run created the tunnel**, `rollback_created_add` deletes the
+remote tunnel and removes the YAML and `<UUID>.json` written by this run.
+
+- Only artifacts created by this run are touched. A tunnel that already existed
+  (local credential reuse) is never deleted.
+- `op_add_verify_dns` runs after the CNAME exists, so a propagation timeout or
+  declining "continue anyway" is reported **without** rollback — the record may
+  simply be slow to propagate.
+- If remote deletion fails, the local files are still removed and the exact
+  `cloudflared tunnel delete <uuid>` command is printed.
+
 ### Ordering, secrecy and fail-closed properties
 
 - Conflict resolution runs **before** `sudo` and before any create/YAML/DNS
   side effect. A refused or unresolvable conflict touches nothing.
+- The DNS ownership preflight (`op_add_dns_preflight`) also runs before `sudo`
+  and before any side effect.
 - The existing tunnel is never reused, renamed, or deleted.
 - An uncertain candidate discovery (exit code 2) is never treated as "free".
+- Rollback only removes artifacts created by the failing run; a tunnel that
+  pre-existed is never deleted by a rollback.
 - No token/PEM/remote-account output is printed; only names and paths.
 
 ---
@@ -153,6 +197,9 @@ point at `--name` instead of `cloudflared tunnel login`.
 | Extra discovery call on the collision path | Low | Low | Only triggered when a credential is missing; one bounded query per candidate |
 | Hostname-derived suffix collides again | Low | Low | Fails closed with an explicit command; no name is invented |
 | Local credential reuse regressed | Low | High | Dedicated regression test asserts reuse with no host-scoped probe |
+| Preflight blocks a legitimate re-add | Low | Medium | Only positive evidence of a *different* tunnel's CNAME blocks; missing tooling, `--no-dns` and non-tunnel records fall through |
+| Rollback deletes a pre-existing tunnel | Low | High | Rollback is armed only when this run created the tunnel; a dedicated test asserts no deletion on reuse |
+| Rollback leaves a dangling CNAME | Low | Low | Rollback only triggers before the CNAME is created (`op_add_route_dns`); post-route timeouts never roll back |
 
 ### Breaking changes
 
@@ -171,8 +218,19 @@ unchanged. Behavior only differs where the previous outcome was a hard failure.
    re-run command with `--name <choose-a-name>`.
 4. Interactive decline → aborts before `sudo`, no tunnel created.
 5. Interactive accept → uses the host-scoped name.
+6. Preflight → blocks a hostname owned by a different tunnel before `sudo` and
+   before create; passes when owned by this tunnel; falls through without
+   tooling, without `--no-dns`, and for non-tunnel records.
+7. Rollback → deletes the remote tunnel and removes the YAML/credential created
+   by this run when the DNS step fails; reports a manual command when deletion
+   fails.
+8. Reuse → a failure after `op_add_route_dns` does not delete a pre-existing
+   tunnel or its credential.
+9. `install.sh` → `check_dns_tools` warns without failing when `dig`/`host` are
+   missing.
 
-Regression: `bash -n lib/tunnel.sh` and the full `cd tests && ./run.sh` suite.
+Regression: `bash -n lib/tunnel.sh install.sh` and the full `cd tests && ./run.sh`
+suite.
 
 ---
 
@@ -183,7 +241,8 @@ Regression: `bash -n lib/tunnel.sh` and the full `cd tests && ./run.sh` suite.
 | Adopting/copying a foreign tunnel credential | Requires operator-supplied secrets; different feature |
 | Predicting the collision in `--plan` | Would make the plan network-dependent and side-effecting |
 | Token-based (remotely managed) tunnels | Tracked separately |
-| Cleaning up orphaned suffix tunnels | Manual `remove` |
+| Cleaning up tunnels orphaned by earlier failed runs | Outside the preflight/rollback window; manual `remove` |
+| DNS ownership check via the Cloudflare API | Would add a `CF_API_TOKEN` dependency; the resolver preflight plus rollback suffices |
 
 ---
 
@@ -198,13 +257,18 @@ No state migration; nothing is written outside the normal `add` artifacts.
 
 ## Acceptance Criteria
 
-- [x] `bash -n lib/tunnel.sh` passes.
-- [x] `cd tests && ./run.sh` passes (133 tests).
+- [x] `bash -n lib/tunnel.sh` and `bash -n install.sh` pass.
+- [x] `cd tests && ./run.sh` passes (145 tests).
 - [x] An existing tunnel without a local credential never triggers creation
       under its own name.
 - [x] Interactive runs ask before using a host-scoped name; decline/uncertain
       paths touch no remote or local state.
 - [x] `--yes` uses the host-scoped name automatically and announces it.
 - [x] A second collision prints a copy-pasteable command with `--name`.
+- [x] A hostname already served by a different tunnel is refused before `sudo`
+      and before any create, when `dig`/`host` can prove it.
+- [x] A failure while creating the DNS route removes the tunnel and local files
+      created by that run, and never a pre-existing tunnel.
+- [x] `install.sh` warns (without failing) when `dig`/`host` are unavailable.
 
 (End of file)

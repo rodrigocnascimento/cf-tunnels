@@ -419,6 +419,178 @@ test_op_add_cross_host_conflict_accepted_creates_host_scoped_tunnel() {
 		"accepted conflict order"
 }
 
+test_dns_preflight_skips_without_no_dns_or_lookup_tooling() {
+	TUNNEL_HOSTNAME="app.example.com"
+	UUID=""
+	NO_DNS=true
+	local rc=0
+	op_add_dns_preflight || rc=$?
+	assert_eq 0 "$rc" "NO_DNS must skip the preflight"
+
+	NO_DNS=false
+	has_cname_lookup() { return 1; }
+	resolve_hostname() { printf '%s\n' 'should-not-be-called'; }
+	local output
+	output="$(op_add_dns_preflight 2>&1)" || rc=$?
+	assert_eq 0 "$rc" "missing dig/host must not block add"
+	assert_contains "$output" "skipping the pre-create DNS ownership check" "missing-tool note"
+	assert_not_contains "$output" "should-not-be-called" "no lookup without a CNAME tool"
+}
+
+test_dns_preflight_blocks_hostname_owned_by_another_tunnel() {
+	TUNNEL_HOSTNAME="app.example.com"
+	UUID=""
+	NO_DNS=false
+	has_cname_lookup() { return 0; }
+	resolve_hostname() { printf '%s\n' 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.cfargotunnel.com.'; }
+
+	local output rc=0
+	output="$(op_add_dns_preflight 2>&1)" || rc=$?
+	assert_ne 0 "$rc" "a foreign tunnel owner must block the preflight"
+	assert_contains "$output" "already served by another tunnel (aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee)" "owner reported"
+}
+
+test_dns_preflight_allows_hostname_owned_by_this_tunnel() {
+	TUNNEL_HOSTNAME="app.example.com"
+	UUID="AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+	NO_DNS=false
+	has_cname_lookup() { return 0; }
+	resolve_hostname() { printf '%s\n' 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.cfargotunnel.com.'; }
+
+	local rc=0
+	op_add_dns_preflight || rc=$?
+	assert_eq 0 "$rc" "the tunnel that owns the hostname must pass the preflight"
+}
+
+test_dns_preflight_ignores_non_tunnel_records() {
+	TUNNEL_HOSTNAME="app.example.com"
+	UUID=""
+	NO_DNS=false
+	has_cname_lookup() { return 0; }
+	resolve_hostname() { printf '%s\n' '198.51.100.7'; }
+
+	local rc=0
+	op_add_dns_preflight || rc=$?
+	assert_eq 0 "$rc" "a non-tunnel record must not be treated as a conflict"
+}
+
+test_rollback_created_add_removes_remote_and_local_artifacts() {
+	local log="$HOME/rollback.log"
+	cloudflared() { printf 'cloudflared %s\n' "$*" >> "$log"; return 0; }
+	local yaml="$HOME/example-http.yml" creds="$HOME/$TEST_TUNNEL_UUID.json"
+	: > "$yaml"
+	: > "$creds"
+
+	local rc=0
+	rollback_created_add "$TEST_TUNNEL_UUID" "$yaml" "$creds" false || rc=$?
+	assert_eq 0 "$rc" "rollback must not report failure on success"
+	assert_file_not_exists "$yaml" "rollback removes the YAML"
+	assert_file_not_exists "$creds" "rollback removes the credential"
+	assert_contains "$(cat "$log")" "cloudflared tunnel delete $TEST_TUNNEL_UUID" "remote tunnel deletion"
+}
+
+test_rollback_created_add_reports_manual_cleanup_when_delete_fails() {
+	cloudflared() { return 1; }
+	local yaml="$HOME/example-http.yml" creds="$HOME/$TEST_TUNNEL_UUID.json"
+	: > "$yaml"
+	: > "$creds"
+
+	local output rc=0
+	output="$(rollback_created_add "$TEST_TUNNEL_UUID" "$yaml" "$creds" false 2>&1)" || rc=$?
+	assert_eq 0 "$rc" "rollback still completes after reporting"
+	assert_contains "$output" "could not delete tunnel" "manual cleanup guidance"
+	assert_contains "$output" "cloudflared tunnel delete $TEST_TUNNEL_UUID" "manual cleanup command"
+	assert_file_not_exists "$creds" "credential is removed locally even when deletion fails"
+}
+
+test_op_add_rolls_back_created_tunnel_when_dns_step_fails() {
+	set_valid_add_input
+	ADD_YES=true
+	local side_effect_log="$HOME/side-effects.log"
+	need() { return 0; }
+	ensure_template() { return 0; }
+	ensure_zone_dir() { mkdir -p "$(zone_base_dir)"; }
+	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	op_add_route_dns() { return 1; }
+	mkdir -p "$HOME/.cloudflared"
+	cloudflared() {
+		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
+		case "$*" in
+		"tunnel list --name example-http --output json")
+			printf '%s\n' '[]'
+			;;
+		"tunnel create --output json example-http")
+			: > "$HOME/.cloudflared/$TEST_TUNNEL_UUID.json"
+			printf '%s\n' \
+				'{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}'
+			;;
+		esac
+	}
+
+	local output rc=0
+	output="$(op_add 2>&1)" || rc=$?
+	assert_ne "0" "$rc" "DNS failure must fail the add"
+	assert_contains "$output" "rolling back this run's changes" "rollback notice"
+	assert_file_not_exists "$HOME/.cloudflared/$TEST_TUNNEL_UUID.json" "created credential removed"
+	assert_file_not_exists "$HOME/.cloudflared/example-http.yml" "created YAML removed"
+	assert_contains "$(cat "$side_effect_log")" "cloudflared tunnel delete $TEST_TUNNEL_UUID" "remote rollback"
+}
+
+test_op_add_keeps_preexisting_tunnel_when_dns_step_fails() {
+	set_valid_add_input
+	ADD_YES=true
+	local side_effect_log="$HOME/side-effects.log"
+	need() { return 0; }
+	ensure_template() { return 0; }
+	ensure_zone_dir() { mkdir -p "$(zone_base_dir)"; }
+	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	op_add_route_dns() { return 1; }
+	mkdir -p "$HOME/.cloudflared"
+	: > "$HOME/.cloudflared/$TEST_TUNNEL_UUID.json"
+	cloudflared() {
+		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
+		case "$*" in
+		"tunnel list --name example-http --output json")
+			printf '%s\n' \
+				'[{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}]'
+			;;
+		esac
+	}
+
+	local output rc=0
+	output="$(op_add 2>&1)" || rc=$?
+	assert_ne "0" "$rc" "DNS failure must fail the add"
+	assert_not_contains "$output" "rolling back this run's changes" "no rollback for a pre-existing tunnel"
+	assert_file_exists "$HOME/.cloudflared/$TEST_TUNNEL_UUID.json" "existing credential preserved"
+	assert_not_contains "$(cat "$side_effect_log")" "tunnel delete" "no remote deletion for a pre-existing tunnel"
+}
+
+test_op_add_preflight_blocks_before_sudo() {
+	set_valid_add_input
+	NO_DNS=false
+	ADD_YES=true
+	local side_effect_log="$HOME/side-effects.log"
+	need() { return 0; }
+	ensure_template() { return 0; }
+	ensure_zone_dir() { printf 'ensure-zone\n' >> "$side_effect_log"; }
+	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	has_cname_lookup() { return 0; }
+	resolve_hostname() { printf '%s\n' 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.cfargotunnel.com.'; }
+	cloudflared() {
+		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
+		printf '%s\n' '[]'
+	}
+
+	local output rc=0
+	output="$(op_add 2>&1)" || rc=$?
+	assert_ne "0" "$rc" "a foreign hostname owner must stop add"
+	assert_contains "$output" "already served by another tunnel" "preflight message"
+	assert_eq \
+		"cloudflared tunnel list --name example-http --output json" \
+		"$(cat "$side_effect_log")" \
+		"preflight must run before sudo and create"
+}
+
 test_help_does_not_probe_cloudflare() {
 	local fake_bin="$HOME/fake-bin"
 	local probe_log="$HOME/cloudflared-probe.log"
