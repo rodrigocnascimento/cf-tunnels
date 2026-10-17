@@ -251,28 +251,172 @@ test_op_add_sudo_failure_stops_before_create() {
 		"sudo failure must precede create and local setup"
 }
 
-test_op_add_existing_tunnel_uses_one_discovery_call() {
+test_op_add_reuses_discovered_tunnel_when_local_credential_exists() {
 	set_valid_add_input
 	local side_effect_log="$HOME/side-effects.log"
 	need() { return 0; }
 	ensure_template() { return 0; }
 	ensure_zone_dir() { printf '%s\n' ensure-zone >> "$side_effect_log"; }
 	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	hostname() { printf '%s\n' 'server-b'; }
+	mkdir -p "$BASE_DIR"
+	: > "$BASE_DIR/$TEST_TUNNEL_UUID.json"
 	cloudflared() {
 		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
-		printf '%s\n' \
-			'[{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}]'
+		case "$*" in
+		"tunnel list --name example-http --output json")
+			printf '%s\n' \
+				'[{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}]'
+			;;
+		esac
+	}
+
+	local output rc=0 log
+	output="$(printf 'y' | op_add 2>&1)" || rc=$?
+	assert_eq "0" "$rc" "local credential reuse must succeed"
+	assert_contains "$output" "already exists (ok)" "existing tunnel reuse"
+	assert_not_contains "$output" "this host needs its own tunnel" "no cross-host conflict notice"
+	log="$(cat "$side_effect_log")"
+	assert_contains "$log" "tunnel list --name example-http --output json" "single exact-name discovery"
+	assert_not_contains "$log" "example-http-server-b" "no host-scoped probe when the credential is local"
+}
+
+test_op_add_cross_host_conflict_uses_host_scoped_name() {
+	set_valid_add_input
+	ADD_YES=true
+	local side_effect_log="$HOME/side-effects.log"
+	need() { return 0; }
+	ensure_template() { return 0; }
+	ensure_zone_dir() { printf '%s\n' ensure-zone >> "$side_effect_log"; }
+	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	hostname() { printf '%s\n' 'Server-B'; }
+	cloudflared() {
+		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
+		case "$*" in
+		"tunnel list --name example-http --output json")
+			printf '%s\n' \
+				'[{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}]'
+			;;
+		"tunnel list --name example-http-server-b --output json")
+			printf '%s\n' '[]'
+			;;
+		"tunnel create --output json example-http-server-b")
+			printf '%s\n' \
+				'{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","name":"example-http-server-b"}'
+			;;
+		esac
 	}
 
 	local output rc=0
-	output="$(printf 'y' | op_add 2>&1)" || rc=$?
+	output="$(op_add 2>&1)" || rc=$?
 	assert_ne "0" "$rc" "fixture intentionally stops at missing credentials"
-	assert_contains "$output" "already exists (ok)" "existing tunnel path"
-	assert_contains "$output" "credentials not found" "expected post-discovery stop"
+	assert_contains "$output" "already exists in this Cloudflare account" "cross-host notice"
+	assert_contains "$output" "separate tunnel for this host: 'example-http-server-b'" "automatic host-scoped name"
 	assert_eq \
-		$'cloudflared tunnel list --name example-http --output json\nsudo -v\nensure-zone' \
+		$'cloudflared tunnel list --name example-http --output json\ncloudflared tunnel list --name example-http-server-b --output json\nsudo -v\ncloudflared tunnel create --output json example-http-server-b\nensure-zone' \
 		"$(cat "$side_effect_log")" \
-		"existing tunnel must not be listed twice or created"
+		"host-scoped discovery/create order"
+}
+
+test_op_add_reports_explicit_command_when_host_scoped_name_is_taken() {
+	set_valid_add_input
+	ADD_YES=true
+	local side_effect_log="$HOME/side-effects.log"
+	need() { return 0; }
+	ensure_template() { return 0; }
+	ensure_zone_dir() { printf '%s\n' ensure-zone >> "$side_effect_log"; }
+	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	hostname() { printf '%s\n' 'server-b'; }
+	cloudflared() {
+		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
+		case "$*" in
+		"tunnel list --name example-http --output json")
+			printf '%s\n' \
+				'[{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}]'
+			;;
+		"tunnel list --name example-http-server-b --output json")
+			printf '%s\n' \
+				'[{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","name":"example-http-server-b"}]'
+			;;
+		esac
+	}
+
+	local output rc=0
+	output="$(op_add 2>&1)" || rc=$?
+	assert_ne "0" "$rc" "must fail closed when the host-scoped name is taken"
+	assert_contains "$output" "'example-http-server-b', is also already taken" "host-scoped collision report"
+	assert_contains "$output" "add --hostname app.example.com --type http --service http://localhost:8080 --no-dns --name <choose-a-name>" "explicit re-run command"
+	assert_not_contains "$output" "[+] creating tunnel" "no tunnel created"
+	assert_eq \
+		$'cloudflared tunnel list --name example-http --output json\ncloudflared tunnel list --name example-http-server-b --output json' \
+		"$(cat "$side_effect_log")" \
+		"host-scoped collision must stop before sudo or create"
+}
+
+test_op_add_cross_host_conflict_declined_stops_before_sudo() {
+	set_valid_add_input
+	ADD_YES=false
+	local side_effect_log="$HOME/side-effects.log"
+	need() { return 0; }
+	ensure_template() { return 0; }
+	ensure_zone_dir() { printf '%s\n' ensure-zone >> "$side_effect_log"; }
+	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	hostname() { printf '%s\n' 'server-b'; }
+	cloudflared() {
+		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
+		case "$*" in
+		"tunnel list --name example-http --output json")
+			printf '%s\n' \
+				'[{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}]'
+			;;
+		"tunnel list --name example-http-server-b --output json")
+			printf '%s\n' '[]'
+			;;
+		esac
+	}
+
+	local output rc=0
+	output="$(printf 'yn' | op_add 2>&1)" || rc=$?
+	assert_ne "0" "$rc" "declining the host-scoped name must stop add"
+	assert_contains "$output" "Aborted. Choose an explicit name and re-run:" "decline guidance"
+	assert_contains "$output" "--name example-http-server-b" "suggested name in the re-run command"
+	assert_not_contains "$output" "[+] creating tunnel" "no tunnel created after decline"
+}
+
+test_op_add_cross_host_conflict_accepted_creates_host_scoped_tunnel() {
+	set_valid_add_input
+	ADD_YES=false
+	local side_effect_log="$HOME/side-effects.log"
+	need() { return 0; }
+	ensure_template() { return 0; }
+	ensure_zone_dir() { printf '%s\n' ensure-zone >> "$side_effect_log"; }
+	sudo() { printf 'sudo %s\n' "$*" >> "$side_effect_log"; return 0; }
+	hostname() { printf '%s\n' 'server-b'; }
+	cloudflared() {
+		printf 'cloudflared %s\n' "$*" >> "$side_effect_log"
+		case "$*" in
+		"tunnel list --name example-http --output json")
+			printf '%s\n' \
+				'[{"id":"12345678-1234-1234-1234-123456789012","name":"example-http"}]'
+			;;
+		"tunnel list --name example-http-server-b --output json")
+			printf '%s\n' '[]'
+			;;
+		"tunnel create --output json example-http-server-b")
+			printf '%s\n' \
+				'{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","name":"example-http-server-b"}'
+			;;
+		esac
+	}
+
+	local output rc=0
+	output="$(printf 'yy' | op_add 2>&1)" || rc=$?
+	assert_ne "0" "$rc" "fixture intentionally stops at missing credentials"
+	assert_contains "$output" "using tunnel name 'example-http-server-b'" "accepted host-scoped name"
+	assert_eq \
+		$'cloudflared tunnel list --name example-http --output json\ncloudflared tunnel list --name example-http-server-b --output json\nsudo -v\ncloudflared tunnel create --output json example-http-server-b\nensure-zone' \
+		"$(cat "$side_effect_log")" \
+		"accepted conflict order"
 }
 
 test_help_does_not_probe_cloudflare() {

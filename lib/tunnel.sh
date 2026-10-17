@@ -343,6 +343,104 @@ create_tunnel_uuid() {
 		.id | select(type == "string")'
 }
 
+server_hostname_slug() {
+	local name=""
+	name="$(hostname -s 2>/dev/null)" || true
+	if [[ -z "$name" ]]; then
+		name="$(uname -n 2>/dev/null)" || true
+	fi
+	[[ -n "$name" ]] || return 1
+	name="$(slugify "$name")"
+	[[ -n "$name" ]] || return 1
+	printf '%s\n' "$name"
+}
+
+# tunnel credential files are written only on the host that created the tunnel,
+# next to the connector that reads them: the active zone directory, or the
+# legacy root location that op_add migrates from.
+tunnel_credential_present() {
+	local uuid="${1:-}"
+	[[ -f "$(zone_base_dir)/${uuid}.json" ]] && return 0
+	[[ -n "$ZONE" && -f "$BASE_DIR/${uuid}.json" ]] && return 0
+	return 1
+}
+
+# 0 = free to create, 1 = already taken, 2 = discovery failed (uncertain).
+tunnel_name_available() {
+	local name="${1:-}" found
+	[[ -f "$(yaml_path_for "$name")" ]] && return 1
+	found="$(discover_tunnel_uuid "$name")" || return 2
+	[[ -z "$found" ]] || return 1
+	return 0
+}
+
+# Copy-pasteable add command so the user can leave the TUI and pick explicitly.
+add_manual_command_hint() {
+	local name_suggestion="${1:-}" hint="cftunnel"
+	[[ -z "$ZONE" ]] || hint+=" --zone $(printf '%q' "$ZONE")"
+	hint+=" add --hostname $(printf '%q' "$TUNNEL_HOSTNAME")"
+	hint+=" --type $(printf '%q' "$TYPE") --service $(printf '%q' "$SERVICE")"
+	if [[ -n "${ORIGIN_SERVER_NAME:-}" ]]; then
+		hint+=" --origin-server-name $(printf '%q' "$ORIGIN_SERVER_NAME")"
+	fi
+	if [[ "${TLS_VERIFY_SET:-false}" == true ]]; then
+		if [[ "${TLS_VERIFY:-true}" == true ]]; then
+			hint+=" --verify-tls"
+		else
+			hint+=" --no-tls-verify"
+		fi
+	fi
+	[[ "${NO_DNS:-false}" == false ]] || hint+=" --no-dns"
+	hint+=" --name ${name_suggestion:-<choose-a-name>}"
+	printf '%s\n' "$hint"
+}
+
+# A tunnel with the derived name already exists in the account but has no local
+# credential, so it was created on another host and cannot be reused here. Offer
+# a host-scoped name; print the chosen name on stdout.
+resolve_tunnel_name_conflict() {
+	local original="${1:-}" server candidate available
+	echo "[!] A tunnel named '${original}' already exists in this Cloudflare account, but this host has no credential for it." >&2
+	echo "    cloudflared writes a tunnel credential only on the machine that created the tunnel, and it cannot be downloaded again." >&2
+	echo "    The existing tunnel is left untouched; this host needs its own tunnel." >&2
+
+	if ! server="$(server_hostname_slug)"; then
+		echo "error: could not derive this host's name to suggest a separate tunnel." >&2
+		echo "    Choose an explicit name and re-run:" >&2
+		add_manual_command_hint "" >&2
+		return 1
+	fi
+	candidate="${original}-${server}"
+
+	available=0
+	tunnel_name_available "$candidate" || available=$?
+	if [[ "$available" -eq 2 ]]; then
+		return 1
+	fi
+	if [[ "$available" -ne 0 ]]; then
+		echo "[!] The name suggested for this host, '${candidate}', is also already taken." >&2
+		echo "    Choose an explicit name and re-run:" >&2
+		add_manual_command_hint "" >&2
+		return 1
+	fi
+
+	if [[ "${ADD_YES:-false}" == true ]]; then
+		echo "[=] --yes: using a separate tunnel for this host: '${candidate}'" >&2
+		printf '%s\n' "$candidate"
+		return 0
+	fi
+
+	read -p "    Create a separate tunnel '${candidate}' for this host instead? [y/N] " -n 1 -r || true
+	echo >&2
+	if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
+		printf '%s\n' "$candidate"
+		return 0
+	fi
+	echo "    Aborted. Choose an explicit name and re-run:" >&2
+	add_manual_command_hint "$candidate" >&2
+	return 1
+}
+
 ensure_unit_enabled() {
 	local unit="$1"
 	sudo systemctl enable "$unit"
@@ -390,6 +488,20 @@ op_add() {
 	local UUID
 	UUID="$(discover_tunnel_uuid "$NAME")" || return 1
 
+	# A discovered tunnel with no local credential was created on another host:
+	# its credential cannot be downloaded again, so reusing the name here can
+	# never work. Offer a host-scoped name instead of failing on the file check.
+	if [[ -n "$UUID" ]] && ! tunnel_credential_present "$UUID"; then
+		local resolved
+		resolved="$(resolve_tunnel_name_conflict "$NAME")" || return 1
+		NAME="$(slugify "$resolved")"
+		[[ -n "$NAME" ]] || die "tunnel name is empty after sanitization"
+		UNIT="$(instance_unit "$NAME")"
+		YAML="$(yaml_path_for "$NAME")"
+		echo "[+] using tunnel name '${NAME}' (unit ${UNIT})"
+		UUID=""
+	fi
+
 	if [[ $EUID -ne 0 ]]; then
 		sudo -v || die "needs sudo permission"
 	fi
@@ -411,7 +523,7 @@ op_add() {
 		echo "[+] moved credentials to zone directory"
 	fi
 
-	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (run 'cloudflared tunnel login' and recreate the tunnel)"
+	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (the credential is created only on the host that created the tunnel; pass --name to create a separate tunnel for this host)"
 
 	local existing_yaml=false
 	if [[ -f "$YAML" ]]; then
