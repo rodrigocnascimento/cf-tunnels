@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-17
+
+### Fixed
+- The terminal dashboard no longer ignores the hostname-removal key silently.
+  Pressing `x` on a tunnel whose local configuration has no hostnames now says
+  so instead of leaving the view unchanged, and the DETAILS pane states that the
+  tunnel has no local hostnames. Removal for tunnels that do have hostnames is
+  unchanged. Cloudflare DNS records are still never deleted by cftunnel.
+
 ## [0.19.0] - 2026-10-17
 
 ### Added
