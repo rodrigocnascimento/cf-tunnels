@@ -67,6 +67,24 @@ need() {
 	command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+# Non-fatal: dig/host are optional, but without them cftunnel cannot verify DNS
+# ownership before creating a tunnel, nor inspect the CNAME from `health`.
+check_dns_tools() {
+	if command -v dig >/dev/null 2>&1 || command -v host >/dev/null 2>&1; then
+		return 0
+	fi
+	local os_ids pkg="dnsutils"
+	os_ids="$(. /etc/os-release 2>/dev/null && printf '%s %s' "${ID:-}" "${ID_LIKE:-}")" || os_ids=""
+	case "$os_ids" in
+	*fedora* | *rhel* | *centos* | *rocky* | *almalinux* | *suse*) pkg="bind-utils" ;;
+	*arch*) pkg="bind" ;;
+	*alpine*) pkg="bind-tools" ;;
+	esac
+	log_warning "dig/host not found: DNS verification during 'cftunnel add' and DNS checks in 'cftunnel health' will be limited."
+	log_warning "Install the '${pkg}' package (or the equivalent for your distro) to enable them."
+	return 0
+}
+
 # =============================================================================
 # Parse Arguments
 # =============================================================================
@@ -556,6 +574,7 @@ main() {
 	parse_args "$@"
 	check_permissions
 	ensure_bundled_runtime
+	check_dns_tools
 
 	echo
 	echo "Selected options:"

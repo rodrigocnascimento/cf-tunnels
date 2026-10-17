@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.18.1] - 2026-10-08
+## [0.18.1] - 2026-10-17
 
 ### Changed
 - Added a terminal dashboard demo with explicitly labeled sample
@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   planning/removal, health observations, and persistent activity logs.
 
 ### Fixed
+- `cftunnel add` no longer fails with a misleading `credentials not found` when
+  the derived tunnel name (`<base-domain>-<type>`) already belongs to a tunnel
+  created on another host. It detects the cross-host conflict, offers a
+  host-scoped name (`<derived>-<server-hostname>`), uses that name automatically
+  under `--yes`, and prints an explicit `--name` command when the suggested name
+  is also taken. The existing tunnel is never reused or modified.
+- `cftunnel add` no longer leaves an orphaned tunnel behind when the DNS step
+  fails. It checks hostname ownership before creating anything (when `dig`/`host`
+  are available) and, if the ingress/DNS step fails after this run created the
+  tunnel, removes that tunnel plus the YAML and credential the run wrote. A
+  tunnel that already existed is never touched.
+- The installer now warns (without failing) when `dig`/`host` are missing, since
+  they power DNS verification in `add` and the DNS checks in `health`.
 - Release bootstrap cleanup no longer references an expired local variable,
   preventing a successful installation from exiting with an error.
 - Regular-user installation makes cloudflared available at the systemd

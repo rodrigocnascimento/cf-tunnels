@@ -343,9 +343,245 @@ create_tunnel_uuid() {
 		.id | select(type == "string")'
 }
 
+server_hostname_slug() {
+	local name=""
+	name="$(hostname -s 2>/dev/null)" || true
+	if [[ -z "$name" ]]; then
+		name="$(uname -n 2>/dev/null)" || true
+	fi
+	[[ -n "$name" ]] || return 1
+	name="$(slugify "$name")"
+	[[ -n "$name" ]] || return 1
+	printf '%s\n' "$name"
+}
+
+# tunnel credential files are written only on the host that created the tunnel,
+# next to the connector that reads them: the active zone directory, or the
+# legacy root location that op_add migrates from.
+tunnel_credential_present() {
+	local uuid="${1:-}"
+	[[ -f "$(zone_base_dir)/${uuid}.json" ]] && return 0
+	[[ -n "$ZONE" && -f "$BASE_DIR/${uuid}.json" ]] && return 0
+	return 1
+}
+
+# 0 = free to create, 1 = already taken, 2 = discovery failed (uncertain).
+tunnel_name_available() {
+	local name="${1:-}" found
+	[[ -f "$(yaml_path_for "$name")" ]] && return 1
+	found="$(discover_tunnel_uuid "$name")" || return 2
+	[[ -z "$found" ]] || return 1
+	return 0
+}
+
+# Copy-pasteable add command so the user can leave the TUI and pick explicitly.
+add_manual_command_hint() {
+	local name_suggestion="${1:-}" hint="cftunnel"
+	[[ -z "$ZONE" ]] || hint+=" --zone $(printf '%q' "$ZONE")"
+	hint+=" add --hostname $(printf '%q' "$TUNNEL_HOSTNAME")"
+	hint+=" --type $(printf '%q' "$TYPE") --service $(printf '%q' "$SERVICE")"
+	if [[ -n "${ORIGIN_SERVER_NAME:-}" ]]; then
+		hint+=" --origin-server-name $(printf '%q' "$ORIGIN_SERVER_NAME")"
+	fi
+	if [[ "${TLS_VERIFY_SET:-false}" == true ]]; then
+		if [[ "${TLS_VERIFY:-true}" == true ]]; then
+			hint+=" --verify-tls"
+		else
+			hint+=" --no-tls-verify"
+		fi
+	fi
+	[[ "${NO_DNS:-false}" == false ]] || hint+=" --no-dns"
+	hint+=" --name ${name_suggestion:-<choose-a-name>}"
+	printf '%s\n' "$hint"
+}
+
+# A tunnel with the derived name already exists in the account but has no local
+# credential, so it was created on another host and cannot be reused here. Offer
+# a host-scoped name; print the chosen name on stdout.
+resolve_tunnel_name_conflict() {
+	local original="${1:-}" server candidate available
+	echo "[!] A tunnel named '${original}' already exists in this Cloudflare account, but this host has no credential for it." >&2
+	echo "    cloudflared writes a tunnel credential only on the machine that created the tunnel, and it cannot be downloaded again." >&2
+	echo "    The existing tunnel is left untouched; this host needs its own tunnel." >&2
+
+	if ! server="$(server_hostname_slug)"; then
+		echo "error: could not derive this host's name to suggest a separate tunnel." >&2
+		echo "    Choose an explicit name and re-run:" >&2
+		add_manual_command_hint "" >&2
+		return 1
+	fi
+	candidate="${original}-${server}"
+
+	available=0
+	tunnel_name_available "$candidate" || available=$?
+	if [[ "$available" -eq 2 ]]; then
+		return 1
+	fi
+	if [[ "$available" -ne 0 ]]; then
+		echo "[!] The name suggested for this host, '${candidate}', is also already taken." >&2
+		echo "    Choose an explicit name and re-run:" >&2
+		add_manual_command_hint "" >&2
+		return 1
+	fi
+
+	if [[ "${ADD_YES:-false}" == true ]]; then
+		echo "[=] --yes: using a separate tunnel for this host: '${candidate}'" >&2
+		printf '%s\n' "$candidate"
+		return 0
+	fi
+
+	read -p "    Create a separate tunnel '${candidate}' for this host instead? [y/N] " -n 1 -r || true
+	echo >&2
+	if [[ "${REPLY:-}" =~ ^[Yy]$ ]]; then
+		printf '%s\n' "$candidate"
+		return 0
+	fi
+	echo "    Aborted. Choose an explicit name and re-run:" >&2
+	add_manual_command_hint "$candidate" >&2
+	return 1
+}
+
 ensure_unit_enabled() {
 	local unit="$1"
 	sudo systemctl enable "$unit"
+}
+
+# Best-effort, read-only ownership check performed before any privileged or
+# remote change. When dig/host can positively identify a different tunnel
+# already serving the public hostname, stop before creating anything. Missing
+# tooling or a hostname owned by this tunnel falls through; the rollback below
+# covers what this cannot see, such as proxied records.
+op_add_dns_preflight() {
+	[[ "${NO_DNS:-false}" == true ]] && return 0
+
+	if ! has_cname_lookup; then
+		echo "[=] No dig/host available: skipping the pre-create DNS ownership check."
+		return 0
+	fi
+
+	local resolved line owner=""
+	resolved="$(resolve_hostname "$TUNNEL_HOSTNAME" 2>/dev/null || true)"
+	while IFS= read -r line; do
+		[[ -n "$line" ]] || continue
+		if [[ "$line" =~ ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.cfargotunnel\.com\.?$ ]]; then
+			owner="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+			break
+		fi
+	done <<< "$resolved"
+
+	[[ -n "$owner" ]] || return 0
+	if [[ -n "${UUID:-}" && "$owner" == "$(printf '%s' "$UUID" | tr '[:upper:]' '[:lower:]')" ]]; then
+		return 0
+	fi
+
+	echo "error: '${TUNNEL_HOSTNAME}' is already served by another tunnel (${owner})." >&2
+	echo "A hostname can point to only one tunnel. Use a different hostname," >&2
+	echo "or reuse that tunnel's connector on this host instead of creating a new tunnel." >&2
+	return 1
+}
+
+# Ingress validation plus CNAME creation. A failure here can leave a tunnel that
+# serves nothing, so the caller rolls back the artifacts this run created.
+op_add_route_dns() {
+	echo "[+] validating ingress"
+	if ! cloudflared tunnel --config "$YAML" ingress validate; then
+		echo "error: ingress validation failed for $YAML" >&2
+		return 1
+	fi
+
+	if [[ "${NO_DNS:-false}" == true ]]; then
+		echo "[=] --no-dns: skipping DNS creation"
+		echo "[=] Create the CNAME record manually in the Cloudflare dashboard:"
+		echo "    ${TUNNEL_HOSTNAME} → ${UUID}.cfargotunnel.com"
+		return 0
+	fi
+
+	echo "[+] creating/updating DNS for ${TUNNEL_HOSTNAME}"
+	local max_attempts=3
+	local attempt=0
+	local DNS_OK=false
+	local DNS_OUTPUT
+	while [[ $attempt -lt $max_attempts && "$DNS_OK" == false ]]; do
+		((attempt++)) || true
+		if [[ $attempt -gt 1 ]]; then
+			local wait=$(( attempt * 5 ))
+			echo "[!] retrying in ${wait}s... (attempt ${attempt}/${max_attempts})"
+			sleep "$wait"
+		fi
+		if DNS_OUTPUT="$(cloudflared tunnel route dns "$NAME" "$TUNNEL_HOSTNAME" 2>&1)"; then
+			DNS_OK=true
+			echo "$DNS_OUTPUT"
+		else
+			echo "[!] attempt ${attempt}/${max_attempts} failed: $DNS_OUTPUT"
+		fi
+	done
+	if [[ "$DNS_OK" == false ]]; then
+		echo "error: failed to create DNS route after ${max_attempts} attempts." >&2
+		echo "Run manually: cloudflared tunnel route dns $NAME $TUNNEL_HOSTNAME" >&2
+		echo "Or create a CNAME in the Cloudflare dashboard pointing to ${UUID}.cfargotunnel.com" >&2
+		return 1
+	fi
+	return 0
+}
+
+# Propagation wait and reporting. The route already exists here, so a timeout is
+# reported without rolling back: the record may simply be slow to propagate.
+op_add_verify_dns() {
+	[[ "${NO_DNS:-false}" == true ]] && return 0
+
+	echo "[+] verifying DNS for ${TUNNEL_HOSTNAME}..."
+	echo "[!] waiting up to 30s for propagation (Ctrl+C to skip)..."
+	local DNS_RESULT=""
+	local WAITED=0
+	while [[ -z "$DNS_RESULT" && $WAITED -lt 30 ]]; do
+		sleep 5
+		DNS_RESULT="$(resolve_hostname "$TUNNEL_HOSTNAME" | head -1 || echo "")"
+		WAITED=$((WAITED + 5))
+		echo "    [+] attempt ${WAITED}/30: ${DNS_RESULT:-"nothing yet..."}"
+	done
+
+	if [[ -z "$DNS_RESULT" ]]; then
+		echo "[!] DNS still not resolving after 30s"
+		echo "[!] The CNAME record may have been created in Cloudflare, but propagation takes time."
+		echo "[!] You can check the dashboard: https://dash.cloudflare.com/"
+		if [[ "${ADD_YES:-false}" != true ]]; then
+			read -p "Continue anyway? (y/N) " -n 1 -r || true
+			echo
+			if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+				echo "error: Operation cancelled." >&2
+				return 1
+			fi
+		else
+			echo "[=] --yes: continuing after the reviewed DNS propagation timeout"
+		fi
+	elif ! has_cname_lookup; then
+		echo "[✓] DNS resolves: $DNS_RESULT (CNAME verification unavailable without dig/host)"
+	elif [[ "$DNS_RESULT" == *".cfargotunnel.com"* || "$DNS_RESULT" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+		echo "[✓] DNS OK: $DNS_RESULT"
+	else
+		echo "[!] warning: unexpected DNS result: $DNS_RESULT"
+		echo "[!] expected: <uuid>.cfargotunnel.com or direct IP"
+	fi
+	return 0
+}
+
+# Undo the artifacts created by this run. Called only when this run created the
+# tunnel, so nothing that pre-existed is removed.
+rollback_created_add() {
+	local uuid="$1" yaml="$2" creds="$3" yaml_preexisted="${4:-false}"
+
+	echo "[!] add failed after creating tunnel '${uuid}'; rolling back this run's changes." >&2
+	if cloudflared tunnel delete "$uuid" >/dev/null 2>&1; then
+		echo "[✓] removed the tunnel created by this run: ${uuid}"
+	else
+		echo "[!] could not delete tunnel '${uuid}' from Cloudflare; remove it manually:" >&2
+		echo "      cloudflared tunnel delete ${uuid}" >&2
+	fi
+	if [[ "$yaml_preexisted" != true ]]; then
+		rm -f "$yaml"
+	fi
+	rm -f "$creds"
+	echo "[✓] removed the local files created by this run"
 }
 
 op_add() {
@@ -390,13 +626,33 @@ op_add() {
 	local UUID
 	UUID="$(discover_tunnel_uuid "$NAME")" || return 1
 
+	# A discovered tunnel with no local credential was created on another host:
+	# its credential cannot be downloaded again, so reusing the name here can
+	# never work. Offer a host-scoped name instead of failing on the file check.
+	if [[ -n "$UUID" ]] && ! tunnel_credential_present "$UUID"; then
+		local resolved
+		resolved="$(resolve_tunnel_name_conflict "$NAME")" || return 1
+		NAME="$(slugify "$resolved")"
+		[[ -n "$NAME" ]] || die "tunnel name is empty after sanitization"
+		UNIT="$(instance_unit "$NAME")"
+		YAML="$(yaml_path_for "$NAME")"
+		echo "[+] using tunnel name '${NAME}' (unit ${UNIT})"
+		UUID=""
+	fi
+
+	# Best-effort, read-only ownership check before any privileged or remote
+	# change: stop if the hostname is already served by a different tunnel.
+	op_add_dns_preflight || return 1
+
 	if [[ $EUID -ne 0 ]]; then
 		sudo -v || die "needs sudo permission"
 	fi
 
+	local created_tunnel=false
 	if [[ -z "$UUID" ]]; then
 		echo "[+] creating tunnel: $NAME"
 		UUID="$(create_tunnel_uuid "$NAME")" || return 1
+		created_tunnel=true
 	else
 		echo "[=] tunnel '$NAME' already exists (ok)"
 	fi
@@ -411,7 +667,7 @@ op_add() {
 		echo "[+] moved credentials to zone directory"
 	fi
 
-	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (run 'cloudflared tunnel login' and recreate the tunnel)"
+	[[ -f "$CREDS_JSON" ]] || die "credentials not found: $CREDS_JSON (the credential is created only on the host that created the tunnel; pass --name to create a separate tunnel for this host)"
 
 	local existing_yaml=false
 	if [[ -f "$YAML" ]]; then
@@ -484,72 +740,13 @@ op_add() {
 		chmod 600 "$YAML"
 	fi
 
-	echo "[+] validating ingress"
-	cloudflared tunnel --config "$YAML" ingress validate
-
-	if [[ "${NO_DNS:-false}" == true ]]; then
-		echo "[=] --no-dns: skipping DNS creation"
-		echo "[=] Create the CNAME record manually in the Cloudflare dashboard:"
-		echo "    ${TUNNEL_HOSTNAME} → ${UUID}.cfargotunnel.com"
-	else
-		echo "[+] creating/updating DNS for ${TUNNEL_HOSTNAME}"
-		local max_attempts=3
-		local attempt=0
-		local DNS_OK=false
-		while [[ $attempt -lt $max_attempts && "$DNS_OK" == false ]]; do
-			((attempt++)) || true
-			if [[ $attempt -gt 1 ]]; then
-				local wait=$(( attempt * 5 ))
-				echo "[!] retrying in ${wait}s... (attempt ${attempt}/${max_attempts})"
-				sleep "$wait"
-			fi
-			local DNS_OUTPUT
-			if DNS_OUTPUT="$(cloudflared tunnel route dns "$NAME" "$TUNNEL_HOSTNAME" 2>&1)"; then
-				DNS_OK=true
-				echo "$DNS_OUTPUT"
-			else
-				echo "[!] attempt ${attempt}/${max_attempts} failed: $DNS_OUTPUT"
-			fi
-		done
-		if [[ "$DNS_OK" == false ]]; then
-			die "failed to create DNS route after ${max_attempts} attempts.
-Run manually: cloudflared tunnel route dns $NAME $TUNNEL_HOSTNAME
-Or create a CNAME in the Cloudflare dashboard pointing to ${UUID}.cfargotunnel.com"
+	if ! op_add_route_dns; then
+		if [[ "$created_tunnel" == true ]]; then
+			rollback_created_add "$UUID" "$YAML" "$CREDS_JSON" "$existing_yaml"
 		fi
-
-		echo "[+] verifying DNS for ${TUNNEL_HOSTNAME}..."
-		echo "[!] waiting up to 30s for propagation (Ctrl+C to skip)..."
-		local DNS_RESULT=""
-		local WAITED=0
-		while [[ -z "$DNS_RESULT" && $WAITED -lt 30 ]]; do
-			sleep 5
-			DNS_RESULT="$(resolve_hostname "$TUNNEL_HOSTNAME" | head -1 || echo "")"
-			WAITED=$((WAITED + 5))
-			echo "    [+] attempt ${WAITED}/30: ${DNS_RESULT:-"nothing yet..."}"
-		done
-
-		if [[ -z "$DNS_RESULT" ]]; then
-			echo "[!] DNS still not resolving after 30s"
-			echo "[!] The CNAME record may have been created in Cloudflare, but propagation takes time."
-			echo "[!] You can check the dashboard: https://dash.cloudflare.com/"
-			if [[ "${ADD_YES:-false}" != true ]]; then
-				read -p "Continue anyway? (y/N) " -n 1 -r || true
-				echo
-				if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
-					die "Operation cancelled."
-				fi
-			else
-				echo "[=] --yes: continuing after the reviewed DNS propagation timeout"
-			fi
-		elif ! has_cname_lookup; then
-			echo "[✓] DNS resolves: $DNS_RESULT (CNAME verification unavailable without dig/host)"
-		elif [[ "$DNS_RESULT" == *".cfargotunnel.com"* || "$DNS_RESULT" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-			echo "[✓] DNS OK: $DNS_RESULT"
-		else
-			echo "[!] warning: unexpected DNS result: $DNS_RESULT"
-			echo "[!] expected: <uuid>.cfargotunnel.com or direct IP"
-		fi
+		return 1
 	fi
+	op_add_verify_dns || return 1
 
 	if [[ "$existing_yaml" == true ]]; then
 		# Adding a route must also guarantee boot-time startup for tunnels that

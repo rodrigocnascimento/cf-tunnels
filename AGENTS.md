@@ -11,7 +11,7 @@ Bash CLI for managing Cloudflare Tunnels with per-tunnel systemd services and a 
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **User documentation:** [GitHub Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)
 - **Repository overview:** `README.md` (visitor card only; keep it concise)
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented), `spec/tdd-remotely-managed-tunnels-exploration-CFTUNNEL-011.md` (exploratory, not decided), `spec/tdd-cftunnel-backup-CFTUNNEL-012.md` (proposed, not started)
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented), `spec/tdd-remotely-managed-tunnels-exploration-CFTUNNEL-011.md` (exploratory, not decided), `spec/tdd-cftunnel-backup-CFTUNNEL-012.md` (proposed, not started), `spec/tdd-cross-host-tunnel-name-conflict-CFTUNNEL-021.md`
 
 ## Project Type
 
@@ -70,7 +70,9 @@ invoke systemd directly. Core verification is manual +
 - **Isolated login and root preservation** — run `cloudflared tunnel login` with a mode-`700` temporary `HOME`, clean it on every exit/signal path, and verify the real root `~/.cloudflared/cert.pem` was not created, removed, or changed even when login returns non-zero.
 - **Recoverable credential replacement** — stage and secure both credential files, publish a durable private transaction containing the previous pair before changing either live file, and retire it only after both replacements succeed. Recover a published transaction before credential use; retain it if recovery is incomplete so the next command can retry. Never replace only one side intentionally.
 - **Hostname containment** — with an active zone, accept only the apex, valid DNS subdomains, or `*` as the complete leftmost label. Reject malformed and cross-zone hostnames before sudo or external/file side effects.
-- **Fail-closed tunnel discovery** — `add` must distinguish a successful empty exact-name response from DNS, network, authentication, API, or JSON failure. Validate remote UUIDs before forming paths; never create on uncertain discovery, and never continue to YAML/DNS/systemd after an uncertain create result.
+- **Fail-closed tunnel discovery** — `add` must distinguish a successful empty exact-name response from DNS, network, authentication, API, or JSON failure. Validate remote UUIDs before forming paths; never create on uncertain discovery, and never continue to YAML/DNS/systemd after an uncertain create result. A discovered tunnel with no local credential belongs to another host: never reuse it, offer a host-scoped name (`<derived>-<server-hostname>`), and fail closed if that name is also taken.
+- **Fail-closed hostname ownership and rollback** — before `sudo` and before any create, `op_add_dns_preflight` fails closed only when `dig`/`host` positively prove the hostname resolves to a *different* tunnel's `<uuid>.cfargotunnel.com`; missing tooling, `--no-dns` and non-tunnel/ proxied records fall through. When the ingress/DNS step fails after this run created the tunnel, `rollback_created_add` deletes that tunnel and removes the YAML and `<UUID>.json` written by the run, and never touches a pre-existing tunnel. A propagation timeout or decline after the CNAME exists is reported without rollback.
+- **`dig`/`host` are optional** — they power DNS verification in `add` and `health` only. `install.sh` warns (never fails) when both are missing, naming the distro package.
 - **Fail-closed removal** — verify active-zone credential binding before stopping a service, and never delete local YAML/UUID credentials when Cloudflare tunnel deletion fails.
 - **`slugify()`** — transforms names only for systemd unit compatibility (lowercase, special chars → hyphens, no leading/trailing hyphens).
 - **Application version** — `cftunnel version` and `cftunnel --version` read the root `VERSION` file. Keep their dispatch before zone loading and dependency checks so they remain offline and side-effect-free.
@@ -89,12 +91,14 @@ If no `dig`/`host`, the `cfargotunnel.com` check is skipped gracefully; DNS stil
 1. Validate flags (`--hostname`, `--type`, `--service`, type/protocol match)
 2. Derive tunnel name from domain+type if `--name` not given and show the confirmation preview
 3. Perform a read-only exact-name discovery; stop on request, JSON, ambiguity, or UUID failure
-4. Obtain sudo authorization, then create only after a successful empty discovery
-5. Reuse the validated discovery/create UUID and locate its credential JSON
-6. Write YAML (quoted values, `chmod 600`)
-7. Validate ingress via `cloudflared tunnel --config $YAML ingress validate`
-8. DNS check → create CNAME route → wait up to 30s for propagation (`--no-dns` skips all DNS steps)
-9. Enable & start systemd service
+4. If discovery finds a tunnel whose credential is not local (created on another host), offer a host-scoped name `<derived>-<server-hostname>`; never reuse the foreign tunnel. `--yes` uses the suggested name automatically and announces it; an unresolvable conflict fails closed with an explicit `--name` command. This runs before sudo.
+5. Best-effort DNS ownership preflight (before sudo): refuse to continue when `dig`/`host` prove the hostname already points to a different tunnel; otherwise fall through.
+6. Obtain sudo authorization, then create only after a successful empty discovery
+7. Reuse the validated discovery/create UUID and locate its credential JSON
+8. Write YAML (quoted values, `chmod 600`)
+9. Validate ingress, then create the CNAME route. If this fails and this run created the tunnel, roll back that tunnel plus the YAML/credential the run wrote; a pre-existing tunnel is never deleted.
+10. Wait up to 30s for propagation (no rollback here: the route already exists). `--no-dns` skips all DNS steps.
+11. Enable & start systemd service
 
 ## Flags & Behavior
 
