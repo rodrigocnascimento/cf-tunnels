@@ -7,6 +7,19 @@ const originTls = {server_name: null, verify: true, configured: false};
 
 afterEach(cleanup);
 
+function frame(view: ReturnType<typeof render>): string {
+	return view.lastFrame() ?? "";
+}
+
+// Mounting refreshes once with no Scope and again once the first zone becomes
+// active, and every refresh clears the message banner. Wait for a condition
+// instead of assuming a fixed delay, so a press can't land inside that startup
+// cycle on a slower machine.
+async function waitUntil(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!predicate() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+}
+
 test("renders the Ink operational view from contract data", async () => {
 	const client: TuiOperations = {
 		capabilities: async () => ({application_version: "0.6.0", operations: {}}),
@@ -151,4 +164,44 @@ test("renders persistent activity results from external operations", async () =>
 	expect(view.lastFrame()).toContain("ACTIVITY");
 	expect(view.lastFrame()).toContain("Hostname app.example.com failed (exit 1).");
 	expect(view.lastFrame()).toContain("PERSISTENT LOCAL LOG");
+});
+
+test("explains why a tunnel with no local hostnames has nothing to remove", async () => {
+	let inventoryLoads = 0;
+	const client: TuiOperations = {
+		capabilities: async () => ({application_version: "0.19.1", operations: {}}),
+		zoneCurrent: async () => ({default_zone: "example.com"}),
+		zoneList: async () => ({default_zone: "example.com", zones: [{name: "example.com", is_default: true, tunnel_count: 1, route_count: 0, credential: {state: "ready", cert_present: true, cert_mode: "600", metadata_present: true, metadata_mode: "600"}}]}),
+		zoneUse: async zone => ({zone, persisted: true, directory_created: true}),
+		hostnamePlan: async () => { throw new Error("not used"); },
+		list: async zone => { inventoryLoads += 1; return {scope_zone: zone ?? null, listed_at: "2026-09-25T00:00:00Z", tunnels: [{zone: "example.com", name: "example-com-http", uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", unit: "cloudflared@example.com_example-com-http.service", status: "active", boot_state: "enabled", config: {yaml: {present: true, mode: "600"}, credential: {present: true, mode: "600"}, issues: []}, routes: []}]}; },
+		health: async () => ({scope_zone: "example.com", checked_at: "2026-09-25T00:00:00Z", tunnels: []}),
+	};
+	const view = render(<App client={client}/>);
+	await waitUntil(() => inventoryLoads >= 2);
+	view.stdin.write("x");
+	await waitUntil(() => frame(view).includes("nothing to remove"));
+	expect(frame(view)).not.toContain("REMOVE HOSTNAME");
+	expect(frame(view)).toContain("example-com-http has no hostnames in the local configuration; nothing to remove");
+	view.stdin.write("\t");
+	await waitUntil(() => frame(view).includes("No hostnames in the local configuration for this tunnel."));
+	expect(frame(view)).toContain("No hostnames in the local configuration for this tunnel.");
+});
+
+test("asks for a selected tunnel before offering hostname removal", async () => {
+	const client: TuiOperations = {
+		capabilities: async () => ({application_version: "0.19.1", operations: {}}),
+		zoneCurrent: async () => ({default_zone: null}),
+		zoneList: async () => ({default_zone: null, zones: []}),
+		zoneUse: async zone => ({zone, persisted: true, directory_created: true}),
+		hostnamePlan: async () => { throw new Error("not used"); },
+		list: async () => ({scope_zone: null, listed_at: "2026-09-25T00:00:00Z", tunnels: []}),
+		health: async () => ({scope_zone: null, checked_at: "2026-09-25T00:00:00Z", tunnels: []}),
+	};
+	const view = render(<App client={client}/>);
+	await new Promise(resolve => setTimeout(resolve, 20));
+	view.stdin.write("x");
+	await waitUntil(() => frame(view).includes("Select a tunnel before removing a hostname"));
+	expect(frame(view)).not.toContain("REMOVE HOSTNAME");
+	expect(frame(view)).toContain("Select a tunnel before removing a hostname");
 });
