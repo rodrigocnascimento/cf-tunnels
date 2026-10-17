@@ -23,6 +23,7 @@ source "$SCRIPT_DIR/lib/tunnel.sh"
 source "$SCRIPT_DIR/lib/contracts.sh"
 source "$SCRIPT_DIR/lib/health.sh"
 source "$SCRIPT_DIR/lib/tui-runtime.sh"
+source "$SCRIPT_DIR/lib/upgrade.sh"
 
 # ===== Help text =============================================================
 print_usage() {
@@ -49,7 +50,8 @@ Commands:
   tui           Launch the installed production TUI (bundled runtime)
   log           Query local structured activity events
   version       Show the cftunnel version and exit
-  cli-update    Update the cloudflared dependency to the latest version
+  upgrade       Update cftunnel itself to the latest release
+  cloudflared-update  Update the cloudflared dependency to the latest version
   zone          Manage persistent default zone and authentication
 
 Zone commands:
@@ -67,7 +69,8 @@ Examples:
   cftunnel --zone example.com list
   cftunnel add --hostname ssh.example.com --type ssh --service ssh://localhost:22 --name ssh-config --zone example.com
   cftunnel --version
-  cftunnel cli-update
+  cftunnel upgrade
+  cftunnel cloudflared-update
 
   # Zone workflow
   cftunnel zone use example.com
@@ -193,6 +196,10 @@ case "$cmd" in
 version | --version)
 	[[ $# -eq 0 ]] || die "'$cmd' does not accept arguments"
 	print_cftunnel_version
+	exit 0
+	;;
+upgrade)
+	op_upgrade "$@"
 	exit 0
 	;;
 	esac
@@ -420,7 +427,7 @@ health)
 	json_enabled || die "health requires --output json"
 	op_health
 	;;
-cli-update) update_cloudflared ;;
+cloudflared-update) update_cloudflared ;;
 zone) op_zone "$@" ;;
 -h | --help | "") print_usage ;;
 *)

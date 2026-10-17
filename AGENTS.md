@@ -11,7 +11,7 @@ Bash CLI for managing Cloudflare Tunnels with per-tunnel systemd services and a 
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **User documentation:** [GitHub Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)
 - **Repository overview:** `README.md` (visitor card only; keep it concise)
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented), `spec/tdd-remotely-managed-tunnels-exploration-CFTUNNEL-011.md` (exploratory, not decided), `spec/tdd-cftunnel-backup-CFTUNNEL-012.md` (proposed, not started), `spec/tdd-cross-host-tunnel-name-conflict-CFTUNNEL-021.md`
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented), `spec/tdd-remotely-managed-tunnels-exploration-CFTUNNEL-011.md` (exploratory, not decided), `spec/tdd-cftunnel-backup-CFTUNNEL-012.md` (proposed, not started), `spec/tdd-cross-host-tunnel-name-conflict-CFTUNNEL-021.md`, `spec/tdd-upgrade-and-cloudflared-update-CFTUNNEL-022.md`
 
 ## Project Type
 
@@ -106,13 +106,14 @@ If no `dig`/`host`, the `cfargotunnel.com` check is skipped gracefully; DNS stil
 - `--zone <name>` — operates inside an isolated zone directory.
 - `--persist` — combined with `--zone`, saves it as the default persistent zone.
 - `zone login` — authenticates in an isolated home, validates the token, performs a suppressed read-only authentication probe, and transactionally installs `cert.pem` plus `zone.json`.
-- `cli-update` — explicitly updates the `cloudflared` binary.
+- `cloudflared-update` — explicitly updates the `cloudflared` binary to the latest release (renamed from `cli-update`, which no longer exists).
+- `upgrade` — updates cftunnel itself. It reuses `install-cftunnel.sh` to download, verify and install the latest release and replace the current installation, then reports the version now in use. It is dispatched before zone loading and dependency checks, so it stays usable with a broken local state.
 - `version` / `--version` — reports the cftunnel application version from `VERSION`; it does not report or update `cloudflared`.
 - `list` — reads hostname routes only from zone YAML files. An active zone scans that zone; no active zone scans all `zones/*/*.yml`. Root-level YAML and the Cloudflare API are not used.
 
 ## Dependency Update Behavior
 
-Normal commands do not perform an automatic dependency-version probe. The old probe used an authenticated account tunnel listing, discarded failures, and could duplicate operational API errors. Use `cftunnel cli-update` explicitly. `list` and application version reporting remain fully local and offline-capable.
+Normal commands do not perform an automatic dependency-version probe. The old probe used an authenticated account tunnel listing, discarded failures, and could duplicate operational API errors. Use `cftunnel cloudflared-update` explicitly to update the `cloudflared` dependency, and `cftunnel upgrade` to update cftunnel itself. `list` and application version reporting remain fully local and offline-capable.
 
 ## Security Hardening in Systemd Template
 

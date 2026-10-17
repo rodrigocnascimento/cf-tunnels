@@ -92,6 +92,7 @@ TEST_FILES=(
 	"$SCRIPT_DIR/test_parser.sh"
 	"$SCRIPT_DIR/test_version.sh"
 	"$SCRIPT_DIR/test_installer.sh"
+	"$SCRIPT_DIR/test_upgrade.sh"
 	"$SCRIPT_DIR/test_yaml.sh"
 )
 
@@ -105,7 +106,7 @@ echo
 echo "Phase 1: Smoke Tests"
 echo "────────────────────"
 
-for script in run.sh install.sh install-cftunnel.sh uninstall.sh lib/tui-runtime.sh packages/tui/scripts/build-runtime.sh; do
+for script in run.sh install.sh install-cftunnel.sh uninstall.sh lib/tui-runtime.sh lib/upgrade.sh packages/tui/scripts/build-runtime.sh; do
 	if bash -n "$PROJECT_DIR/$script"; then
 		_pass "syntax: $script"
 	else
@@ -144,7 +145,7 @@ echo
 echo "Phase 3: Integration Tests"
 echo "──────────────────────────"
 
-for file in test_zones.sh test_zone_credentials.sh test_list.sh test_contracts.sh test_add_remote_failures.sh test_yaml.sh; do
+for file in test_zones.sh test_zone_credentials.sh test_list.sh test_contracts.sh test_add_remote_failures.sh test_yaml.sh test_upgrade.sh; do
 	file_path="$SCRIPT_DIR/$file"
 	echo "  → $file"
 	for func in $(grep -oE '^test_[a-zA-Z0-9_]+' "$file_path"); do
