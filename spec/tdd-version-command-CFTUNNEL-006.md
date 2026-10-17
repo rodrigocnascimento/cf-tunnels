@@ -6,6 +6,11 @@
 > **Status:** Approved and implemented
 > **Date:** 2026-07-18
 > **Author:** Rodrigo Nascimento
+>
+> **Note (2026-10-17):** the update command this document calls `cli-update` was
+> renamed to `cloudflared-update`, and updating cftunnel itself — listed here as
+> out of scope — is now provided by `cftunnel upgrade`. See
+> `spec/tdd-upgrade-and-cloudflared-update-CFTUNNEL-022.md`.
 
 ---
 

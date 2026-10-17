@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-17
+
+### Added
+- `cftunnel upgrade`, which updates cftunnel itself. It reuses the release
+  installer to download, verify and install the latest published release and
+  replace the current installation, then reports the version it is now running.
+
+### Changed
+- Renamed `cftunnel cli-update` to `cftunnel cloudflared-update`, so the command
+  name states which component it updates. Updating cftunnel itself is now a
+  separate command, `cftunnel upgrade`.
+
 ## [0.18.1] - 2026-10-17
 
 ### Changed
