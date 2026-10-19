@@ -649,7 +649,7 @@ op_zone() {
 				echo "Use: cftunnel zone use <name>   or   cftunnel --zone <name> --persist"
 			fi
 			;;
-		unset|clear|remove)
+		unset|clear)
 			local previous
 			previous="$(load_default_zone)" || return 1
 			unset_default_zone
@@ -662,6 +662,9 @@ op_zone() {
 				return
 			fi
 			echo "Default zone has been cleared."
+			;;
+		remove)
+			op_zone_remove "$@"
 			;;
 		login)
 			if json_enabled; then
@@ -756,6 +759,7 @@ op_zone() {
 			echo "  cftunnel zone current        Show current default zone"
 			echo "  cftunnel zone unset          Clear the default zone"
 			echo "  cftunnel zone login          Authenticate and save a credential to the active zone"
+			echo "  cftunnel zone remove <domain>  Delete a zone and everything it owns"
 			exit 1
 			;;
 	esac

@@ -30,7 +30,7 @@ const clearScreen = () => {
 
 const start = () => {
 	clearScreen();
-	instance = render(<App client={client} onLogin={runLogin} onApplyHostname={applyHostname} onRemoveHostname={removeHostname} activity={activity}/>);
+	instance = render(<App client={client} onLogin={runLogin} onApplyHostname={applyHostname} onRemoveHostname={removeHostname} onRemoveZone={removeZone} activity={activity}/>);
 };
 
 const runExternal = async (label: string, args: string[], streamStderr = false) => {
@@ -69,6 +69,12 @@ const applyHostname = async ({zone, hostname, type, service, originServerName, v
 
 const removeHostname = async ({zone, hostname}: {zone: string; hostname: string}) => {
 	await runExternal(`Remove hostname ${hostname}`, ["--zone", zone, "hostname", "remove", "--hostname", hostname, "--yes"]);
+};
+
+const removeZone = async (zone: string) => {
+	// The target zone is the command argument, never inferred from --zone or
+	// from the persisted default pointer, so no scope flag is passed here.
+	await runExternal(`Remove zone ${zone}`, ["zone", "remove", zone, "--yes"]);
 };
 
 if (!logInvocation) start();

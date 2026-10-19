@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `cftunnel zone remove <domain>`, which removes a zone completely: its tunnels
+  and their matching DNS records in Cloudflare, its systemd units, its local
+  credential/YAML files, the zone directory, and the persisted default-zone
+  pointer when it targets that zone. `--plan` previews the complete inventory
+  with no side effects; `--yes` skips only the typed confirmation. The
+  destructive command requires the canonical zone name as an argument and never
+  infers it from `--zone` or the default pointer. Remote deletion fails closed:
+  the first failure stops the run and preserves that tunnel's local files for a
+  safe re-run, and the zone directory and pointer are removed only after every
+  tunnel is gone. DNS records are deleted only when `CF_API_TOKEN` is available
+  and only when both the record name and the `<uuid>.cfargotunnel.com` content
+  match the removed zone's tunnels; otherwise they are listed for manual
+  removal.
+- The terminal dashboard exposes zone removal with `D` on the active Scope: it
+  shows the plan (tunnels, units, files, DNS records, warnings), requires the
+  exact zone name to be typed, then hands off to the CLI with `--yes`.
+
+### Changed
+- `cftunnel zone remove` is no longer an alias of `cftunnel zone unset`.
+  `zone unset` and `zone clear` still clear only the persisted default-zone
+  pointer.
+
 ## [0.19.1] - 2026-10-17
 
 ### Fixed

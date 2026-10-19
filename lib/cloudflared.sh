@@ -16,6 +16,28 @@ cloudflared() {
 	return $rc
 }
 
+# Same as cloudflared(), but for an explicitly named zone instead of the
+# active one. A destructive command must never borrow the credential of a
+# different zone just because it happens to be selected.
+cloudflared_for_zone() {
+	local zone="${1:-}"
+	shift || true
+	[[ -n "$zone" ]] || return 1
+	[[ -n "$CLOUDFLARED_BIN" && -x "$CLOUDFLARED_BIN" ]] || {
+		echo "error: required command not found: cloudflared" >&2
+		return 1
+	}
+	local cert_path="$HOME_DIR/.cloudflared/zones/$zone/cert.pem"
+	verify_zone_credential_binding "$zone" "$cert_path" || return 1
+	local tmpout rc
+	tmpout=$(mktemp)
+	"$CLOUDFLARED_BIN" --origincert "$cert_path" "$@" 2>"$tmpout"
+	rc=$?
+	grep -v -i '"outdated"' "$tmpout" >&2 || true
+	rm -f "$tmpout"
+	return $rc
+}
+
 update_cloudflared() {
 	echo "[+] Checking current cloudflared version..."
 	local current_version=""

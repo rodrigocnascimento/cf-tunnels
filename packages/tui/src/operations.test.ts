@@ -1,4 +1,5 @@
 import {expect, test} from "bun:test";
+import type {ZoneRemovalPlan} from "./contracts.js";
 import {CftunnelOperations, type ProcessRunner} from "./operations.js";
 
 test("rejects a malformed contract response", async () => {
@@ -34,6 +35,17 @@ test("sets an already-discovered zone through the JSON contract", async () => {
 	}};
 	await expect(new CftunnelOperations(runner).zoneUse("example.com")).resolves.toEqual({zone: "example.com", persisted: true, directory_created: true});
 	expect(received).toEqual(["zone", "use", "example.com", "--output", "json"]);
+});
+
+test("plans a zone removal from its explicit domain argument, never from a scope flag", async () => {
+	let received: string[] = [];
+	const plan: ZoneRemovalPlan = {zone: "example.com", zone_dir: "/home/user/.cloudflared/zones/example.com", tunnels: [{name: "api", uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", unit: "cloudflared@example.com_api.service", yaml: "/home/user/.cloudflared/zones/example.com/api.yml", credential: "/home/user/.cloudflared/zones/example.com/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.json", routes: [{hostname: "api.example.com", service: "http://localhost:3000"}]}], files: {known: 4, other: 0, total: 4}, credential: {state: "ready"}, default_zone: {current: "example.com", will_clear: true}, dns: {mode: "manual", token_present: false, records: []}, privilege: {sudo_required: true}, warnings: []};
+	const runner: ProcessRunner = {run: async args => {
+		received = args;
+		return {exitCode: 0, stderr: "", stdout: JSON.stringify({schema_version: 1, operation: "zone.remove.plan", ok: true, data: plan, warnings: []})};
+	}};
+	await expect(new CftunnelOperations(runner).zoneRemovePlan("example.com")).resolves.toEqual(plan);
+	expect(received).toEqual(["zone", "remove", "example.com", "--plan", "--output", "json"]);
 });
 
 test("plans a hostname addition through an argument-array contract", async () => {

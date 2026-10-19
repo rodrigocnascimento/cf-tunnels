@@ -82,6 +82,8 @@ op_capabilities() {
 				"zone.current": {json: true},
 				"zone.use": {json: true},
 				"zone.unset": {json: true},
+				"zone.remove.plan": {json: true},
+				"zone.remove": {json: true},
 				"tunnel.list": {json: true},
 				"tunnel.status": {json: true},
 				"tunnel.health": {json: true},

@@ -205,3 +205,93 @@ test("asks for a selected tunnel before offering hostname removal", async () => 
 	expect(frame(view)).not.toContain("REMOVE HOSTNAME");
 	expect(frame(view)).toContain("Select a tunnel before removing a hostname");
 });
+
+test("removes the active zone only after its exact name is typed", async () => {
+	let inventoryLoads = 0;
+	let plans = 0;
+	const removed: string[] = [];
+	const client: TuiOperations = {
+		capabilities: async () => ({application_version: "0.19.1", operations: {}}),
+		zoneCurrent: async () => ({default_zone: "example.com"}),
+		zoneList: async () => ({default_zone: "example.com", zones: [{name: "example.com", is_default: true, tunnel_count: 1, route_count: 1, credential: {state: "ready", cert_present: true, cert_mode: "600", metadata_present: true, metadata_mode: "600"}}]}),
+		zoneUse: async zone => ({zone, persisted: true, directory_created: true}),
+		hostnamePlan: async () => { throw new Error("not used"); },
+		zoneRemovePlan: async zone => {
+			plans += 1;
+			return {zone, zone_dir: "/home/user/.cloudflared/zones/example.com", tunnels: [{name: "api", uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", unit: "cloudflared@example.com_api.service", yaml: "/home/user/.cloudflared/zones/example.com/api.yml", credential: "/home/user/.cloudflared/zones/example.com/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.json", routes: [{hostname: "api.example.com", service: "http://localhost:3000"}]}], files: {known: 4, other: 0, total: 4}, credential: {state: "ready"}, default_zone: {current: "example.com", will_clear: true}, dns: {mode: "manual", token_present: false, records: [{hostname: "api.example.com", content: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.cfargotunnel.com"}]}, privilege: {sudo_required: true}, warnings: ["CF_API_TOKEN is not available; DNS records must be removed manually"]};
+		},
+		list: async zone => { inventoryLoads += 1; return {scope_zone: zone ?? null, listed_at: "2026-09-25T00:00:00Z", tunnels: [{zone: "example.com", name: "api", uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", unit: "cloudflared@example.com_api.service", status: "active", boot_state: "enabled", config: {yaml: {present: true, mode: "600"}, credential: {present: true, mode: "600"}, issues: []}, routes: [{hostname: "api.example.com", service: "http://localhost:3000"}]}]}; },
+		health: async () => ({scope_zone: "example.com", checked_at: "2026-09-25T00:00:00Z", tunnels: []}),
+	};
+	const view = render(<App client={client} onRemoveZone={async zone => { removed.push(zone); }}/>);
+	await waitUntil(() => inventoryLoads >= 2);
+	view.stdin.write("D");
+	await waitUntil(() => frame(view).includes("REMOVE ZONE · example.com"));
+	expect(plans).toBe(1);
+	expect(frame(view)).toContain("cloudflared@example.com_api.service");
+	expect(frame(view)).toContain("api.example.com");
+	expect(frame(view)).toContain("DNS: 1 record(s) must be removed manually.");
+	expect(frame(view)).toContain("persisted default zone pointer will be cleared");
+	expect(removed).toEqual([]);
+
+	view.stdin.write("example");
+	await waitUntil(() => frame(view).includes("confirm: example"));
+	view.stdin.write("\r");
+	await waitUntil(() => frame(view).includes("Type example.com exactly to confirm zone removal"));
+	expect(removed).toEqual([]);
+	expect(frame(view)).toContain("REMOVE ZONE · example.com");
+
+	for (let i = 0; i < 7; i += 1) view.stdin.write("\u007F");
+	view.stdin.write("example.com");
+	await waitUntil(() => frame(view).includes("confirm: example.com▌"));
+	view.stdin.write("\r");
+	await waitUntil(() => removed.length === 1);
+	expect(removed).toEqual(["example.com"]);
+	expect(plans).toBe(1);
+});
+
+test("asks for an active Scope before offering zone removal", async () => {
+	const client: TuiOperations = {
+		capabilities: async () => ({application_version: "0.19.1", operations: {}}),
+		zoneCurrent: async () => ({default_zone: null}),
+		zoneList: async () => ({default_zone: null, zones: []}),
+		zoneUse: async zone => ({zone, persisted: true, directory_created: true}),
+		hostnamePlan: async () => { throw new Error("not used"); },
+		zoneRemovePlan: async () => { throw new Error("must not be requested without a Scope"); },
+		list: async () => ({scope_zone: null, listed_at: "2026-09-25T00:00:00Z", tunnels: []}),
+		health: async () => ({scope_zone: null, checked_at: "2026-09-25T00:00:00Z", tunnels: []}),
+	};
+	const view = render(<App client={client}/>);
+	await new Promise(resolve => setTimeout(resolve, 20));
+	view.stdin.write("D");
+	await waitUntil(() => frame(view).includes("Select a zone before removing it"));
+	expect(frame(view)).toContain("Select a zone before removing it");
+	expect(frame(view)).not.toContain("REMOVE ZONE");
+});
+
+test("cancels a pending zone removal plan without contacting the CLI again", async () => {
+	let inventoryLoads = 0;
+	let plans = 0;
+	const removed: string[] = [];
+	const client: TuiOperations = {
+		capabilities: async () => ({application_version: "0.19.1", operations: {}}),
+		zoneCurrent: async () => ({default_zone: "example.com"}),
+		zoneList: async () => ({default_zone: "example.com", zones: [{name: "example.com", is_default: true, tunnel_count: 0, route_count: 0, credential: {state: "ready", cert_present: true, cert_mode: "600", metadata_present: true, metadata_mode: "600"}}]}),
+		zoneUse: async zone => ({zone, persisted: true, directory_created: true}),
+		hostnamePlan: async () => { throw new Error("not used"); },
+		zoneRemovePlan: async zone => {
+			plans += 1;
+			return {zone, zone_dir: "/home/user/.cloudflared/zones/example.com", tunnels: [], files: {known: 2, other: 0, total: 2}, credential: {state: "ready"}, default_zone: {current: "example.com", will_clear: true}, dns: {mode: "manual", token_present: false, records: []}, privilege: {sudo_required: true}, warnings: []};
+		},
+		list: async zone => { inventoryLoads += 1; return {scope_zone: zone ?? null, listed_at: "2026-09-25T00:00:00Z", tunnels: []}; },
+		health: async () => ({scope_zone: "example.com", checked_at: "2026-09-25T00:00:00Z", tunnels: []}),
+	};
+	const view = render(<App client={client} onRemoveZone={async zone => { removed.push(zone); }}/>);
+	await waitUntil(() => inventoryLoads >= 2);
+	view.stdin.write("D");
+	await waitUntil(() => frame(view).includes("REMOVE ZONE · example.com"));
+	view.stdin.write("\u001B");
+	await waitUntil(() => !frame(view).includes("REMOVE ZONE · example.com"));
+	expect(removed).toEqual([]);
+	expect(plans).toBe(1);
+});

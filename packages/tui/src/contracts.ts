@@ -27,6 +27,24 @@ export type Zone = {
 	credential: {state: "ready" | "missing" | "invalid"; cert_present: boolean; cert_mode: string | null; metadata_present: boolean; metadata_mode: string | null};
 };
 export type ZoneInventory = {default_zone: string | null; zones: Zone[]};
+export type ZoneRemovalPlan = {
+	zone: string;
+	zone_dir: string;
+	tunnels: Array<{
+		name: string;
+		uuid: string;
+		unit: string;
+		yaml: string;
+		credential: string;
+		routes: Array<{hostname: string; service: string}>;
+	}>;
+	files: {known: number; other: number; total: number};
+	credential: {state: Zone["credential"]["state"]};
+	default_zone: {current: string | null; will_clear: boolean};
+	dns: {mode: "automatic" | "manual"; token_present: boolean; records: Array<{hostname: string; content: string}>};
+	privilege: {sudo_required: boolean};
+	warnings: string[];
+};
 export type ZoneUse = {zone: string; persisted: true; directory_created: boolean};
 export type HostnamePlan = {
 	zone: string | null;

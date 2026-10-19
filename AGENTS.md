@@ -11,7 +11,7 @@ Bash CLI for managing Cloudflare Tunnels with per-tunnel systemd services and a 
 - **SSH diagnostics:** `cf-ssh-diagnose.zsh`
 - **User documentation:** [GitHub Wiki](https://github.com/rodrigocnascimento/cf-tunnels/wiki)
 - **Repository overview:** `README.md` (visitor card only; keep it concise)
-- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented), `spec/tdd-remotely-managed-tunnels-exploration-CFTUNNEL-011.md` (exploratory, not decided), `spec/tdd-cftunnel-backup-CFTUNNEL-012.md` (proposed, not started), `spec/tdd-cross-host-tunnel-name-conflict-CFTUNNEL-021.md`, `spec/tdd-upgrade-and-cloudflared-update-CFTUNNEL-022.md`, `spec/tdd-tui-hostname-removal-feedback-CFTUNNEL-023.md`
+- **Design specs:** `spec/tdd-tunnel-hardening-code-quality-CFTUNNEL-001.md`, `spec/tdd-zone-isolation-CFTUNNEL-002.md`, `spec/tdd-modular-refactor-CFTUNNEL-003.md`, `spec/tdd-critical-bug-fixes-CFTUNNEL-004.md`, `spec/tdd-local-zone-ingress-listing-CFTUNNEL-005.md`, `spec/tdd-version-command-CFTUNNEL-006.md`, `spec/tdd-safe-zone-registration-certificate-binding-CFTUNNEL-007.md`, `spec/tdd-fail-closed-cloudflare-api-probes-CFTUNNEL-008.md`, `spec/tdd-uuid-locale-collation-gap-CFTUNNEL-009.md`, `spec/tdd-tui-integration-contract-CFTUNNEL-010.md` (design only, not implemented), `spec/tdd-remotely-managed-tunnels-exploration-CFTUNNEL-011.md` (exploratory, not decided), `spec/tdd-cftunnel-backup-CFTUNNEL-012.md` (proposed, not started), `spec/tdd-cross-host-tunnel-name-conflict-CFTUNNEL-021.md`, `spec/tdd-upgrade-and-cloudflared-update-CFTUNNEL-022.md`, `spec/tdd-tui-hostname-removal-feedback-CFTUNNEL-023.md`, `spec/tdd-zone-removal-CFTUNNEL-024.md`
 
 ## Project Type
 
@@ -35,7 +35,7 @@ invoke systemd directly. Core verification is manual +
 ## Verification & Testing
 
 - Syntax check: `bash -n run.sh`
-- Test suite: `cd tests && ./run.sh` (functions, zones, credential transactions and binding, safe removal, fail-closed remote discovery, local listing, parser, version reporting, YAML, logging, and installer regressions)
+- Test suite: `cd tests && ./run.sh` (functions, zones, credential transactions and binding, safe removal, zone removal/teardown, fail-closed remote discovery, local listing, parser, version reporting, YAML, logging, and installer regressions)
 - Test suite with full output: `cd tests && ./run.sh --verbose`
 - Makefile phases: `make smoke`, `make unit`, `make integration`, `make cli`, `make all`
 - Validate by running `cftunnel list` or creating a test tunnel with `cftunnel add`.
@@ -56,6 +56,7 @@ invoke systemd directly. Core verification is manual +
 - **Zone isolation:** `--zone <name>` stores configs under `~/.cloudflared/zones/<domain>/`
 - **Persistent default zone:** stored canonically in mode-`600` `~/.cloudflared/.default_zone`; every persistence path first creates the matching zone directory
 - **Unit naming:** `cloudflared@${zone-slug}_${name}.service` (or `cloudflared@${name}.service` without zone). `_` is the zone separator to avoid parsing conflicts with hyphens in names.
+- **Zone removal:** `lib/zone-remove.sh` owns `zone remove <domain>` (plan, typed confirmation, teardown); `cloudflared_for_zone()` in `lib/cloudflared.sh` runs remote calls with the target zone's own certificate instead of borrowing the active zone's credential.
 
 ## Critical Conventions (Easy to Miss)
 
@@ -74,6 +75,7 @@ invoke systemd directly. Core verification is manual +
 - **Fail-closed hostname ownership and rollback** — before `sudo` and before any create, `op_add_dns_preflight` fails closed only when `dig`/`host` positively prove the hostname resolves to a *different* tunnel's `<uuid>.cfargotunnel.com`; missing tooling, `--no-dns` and non-tunnel/ proxied records fall through. When the ingress/DNS step fails after this run created the tunnel, `rollback_created_add` deletes that tunnel and removes the YAML and `<UUID>.json` written by the run, and never touches a pre-existing tunnel. A propagation timeout or decline after the CNAME exists is reported without rollback.
 - **`dig`/`host` are optional** — they power DNS verification in `add` and `health` only. `install.sh` warns (never fails) when both are missing, naming the distro package.
 - **Fail-closed removal** — verify active-zone credential binding before stopping a service, and never delete local YAML/UUID credentials when Cloudflare tunnel deletion fails.
+- **Zone removal never infers its target** — `zone remove <domain>` requires the canonical domain as an argument, never the active `--zone` or `.default_zone`, and deletes a DNS record only when both its name and its `<uuid>.cfargotunnel.com` content match that zone's tunnels. It stops at the first remote failure, preserving that tunnel's local files, and removes the zone directory and default pointer only after every tunnel is gone.
 - **`slugify()`** — transforms names only for systemd unit compatibility (lowercase, special chars → hyphens, no leading/trailing hyphens).
 - **TUI never fails silently** — a dashboard key press must either start its flow or explain in the view why it cannot proceed (no selected tunnel, no local hostnames). Never leave an operator with an unchanged screen and no message.
 - **Application version** — `cftunnel version` and `cftunnel --version` read the root `VERSION` file. Keep their dispatch before zone loading and dependency checks so they remain offline and side-effect-free.
@@ -111,6 +113,7 @@ If no `dig`/`host`, the `cfargotunnel.com` check is skipped gracefully; DNS stil
 - `upgrade` — updates cftunnel itself. It reuses `install-cftunnel.sh` to download, verify and install the latest release and replace the current installation, then reports the version now in use. It is dispatched before zone loading and dependency checks, so it stays usable with a broken local state.
 - `version` / `--version` — reports the cftunnel application version from `VERSION`; it does not report or update `cloudflared`.
 - `list` — reads hostname routes only from zone YAML files. An active zone scans that zone; no active zone scans all `zones/*/*.yml`. Root-level YAML and the Cloudflare API are not used.
+- `zone remove <domain>` — removes a zone completely: its tunnels and matching DNS records (when `CF_API_TOKEN` is usable), its `cloudflared@<domain>_<name>.service` units, its local files and directory, and the default pointer when it targets that zone. The domain is mandatory and canonical; the target is never inferred from `--zone` or `.default_zone`. `--plan` previews the inventory locally with no sudo, network, or mutation; `--yes` skips only the typed-name confirmation. It fails closed: the first remote failure stops the run and keeps that tunnel's local files, and the directory/pointer are removed only after every tunnel is gone. This is not `zone unset`/`zone clear`, which only clear the persisted default pointer.
 
 ## Dependency Update Behavior
 

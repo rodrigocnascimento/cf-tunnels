@@ -22,6 +22,7 @@ source "$SCRIPT_DIR/lib/zone.sh"
 source "$SCRIPT_DIR/lib/tunnel.sh"
 source "$SCRIPT_DIR/lib/contracts.sh"
 source "$SCRIPT_DIR/lib/health.sh"
+source "$SCRIPT_DIR/lib/zone-remove.sh"
 source "$SCRIPT_DIR/lib/tui-runtime.sh"
 source "$SCRIPT_DIR/lib/upgrade.sh"
 
@@ -60,6 +61,9 @@ Zone commands:
   zone current        Show the current default zone
   zone unset          Clear the default zone
   zone login          Authenticate and bind a credential to the active zone
+  zone remove <domain>  Delete a zone: tunnels, DNS, units, files, credentials
+                      [--plan] previews it, otherwise type the zone name to
+                      confirm, [--yes] skips only the confirmation
 
   You can also use: cftunnel --zone <name> --persist
 
@@ -347,9 +351,14 @@ emit_operation_event() {
 	fi
 	[[ "$cmd" == "add" && "$ADD_PLAN" == true ]] && return 0
 	[[ "$cmd" == "hostname" && "$REMOVE_PLAN" == true ]] && return 0
+	# A plan is only a preview and an aborted confirmation changed nothing.
+	[[ "$operation" == "zone.remove" && "$ZONE_REMOVE_PLAN" == true ]] && return 0
+	[[ "$operation" == "zone.remove" && "$ZONE_REMOVE_ABORTED" == true ]] && return 0
 	if [[ "$status" -ne 0 ]]; then event_level=error; outcome="failed (exit $status)"; fi
 	local args=(log write --type activity --level "$event_level" --message "cftunnel $operation $outcome" --operation "$operation")
-	[[ -z "$ZONE" ]] || args+=(--zone "$ZONE")
+	local event_zone="$ZONE"
+	[[ "$operation" != "zone.remove" || -z "${ZONE_REMOVE_TARGET:-}" ]] || event_zone="$ZONE_REMOVE_TARGET"
+	[[ -z "$event_zone" ]] || args+=(--zone "$event_zone")
 	local event_hostname="${TUNNEL_HOSTNAME:-${REMOVE_HOSTNAME:-}}"
 	[[ -z "$event_hostname" ]] || args+=(--hostname "$event_hostname")
 	if ! "$SCRIPT_DIR/run.sh" "${args[@]}" >/dev/null 2>&1; then
