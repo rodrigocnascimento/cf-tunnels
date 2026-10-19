@@ -1,4 +1,4 @@
-import type {ActivityLogEvent, CapabilityData, Health, HostnamePlan, HostnameRemovalPlan, Inventory, JsonResponse, ZoneContext, ZoneInventory, ZoneUse} from "./contracts.js";
+import type {ActivityLogEvent, CapabilityData, Health, HostnamePlan, HostnameRemovalPlan, Inventory, JsonResponse, ZoneContext, ZoneInventory, ZoneRemovalPlan, ZoneUse} from "./contracts.js";
 import {activityDetails} from "./activity.js";
 
 export interface ProcessRunner {
@@ -27,6 +27,7 @@ export interface TuiOperations {
 	zoneUse(zone: string): Promise<ZoneUse>;
 	hostnamePlan(zone: string, hostname: string, type: HostnamePlan["type"], service: string, originServerName?: string | null, verifyTls?: boolean): Promise<HostnamePlan>;
 	hostnameRemovePlan?(zone: string, hostname: string): Promise<HostnameRemovalPlan>;
+	zoneRemovePlan?(zone: string): Promise<ZoneRemovalPlan>;
 	activity?(): Promise<{events: ActivityLogEvent[]; warnings: string[]}>;
 	writeActivity?(event: Omit<ActivityLogEvent, "schema_version" | "timestamp"> & {timestamp?: string}): Promise<void>;
 	takeObservabilityWarning?(): string | null;
@@ -67,6 +68,10 @@ export class CftunnelOperations implements TuiOperations {
 
 	async hostnameRemovePlan(zone: string, hostname: string) {
 		return this.call<HostnameRemovalPlan>("hostname.remove.plan", ["--zone", zone, "hostname", "remove", "--hostname", hostname, "--plan", "--output", "json"]);
+	}
+
+	async zoneRemovePlan(zone: string) {
+		return this.call<ZoneRemovalPlan>("zone.remove.plan", ["zone", "remove", zone, "--plan", "--output", "json"]);
 	}
 
 	async activity() {
